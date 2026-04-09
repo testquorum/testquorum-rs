@@ -2,7 +2,6 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
   pull_request:
     branches: [ main ]
 
@@ -38,6 +37,10 @@ jobs:
       - name: Sign and push to R2
         if: always()
         run: |
+          if [ -z "$SIGNING_KEY" ]; then
+            echo "No signing key available; skipping sign+push."
+            exit 0
+          fi
           echo "$SIGNING_KEY" > /tmp/nix-signing-key
           trap 'rm -f /tmp/nix-signing-key' EXIT
           paths=$(nix path-info --all --json \
