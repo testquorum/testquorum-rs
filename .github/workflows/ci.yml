@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  nix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@fd24c48048070c1be9acd18c9d369a83f0fe94d7 # v31
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+
+      - name: Enter CI devShell
+        uses: nicknovitski/nix-develop@9be7cfb4b10451d3390a75dc18ad0465bed4932a # v1
+        with:
+          arguments: .#ci
+
+      - name: Build all outputs
+        run: nix-fast-build --no-nom --skip-cached --flake '.#ci'
+
+      - name: Sign and push to R2
+        if: always()
+        run: |
+          echo "$SIGNING_KEY" > /tmp/nix-signing-key
+          trap 'rm -f /tmp/nix-signing-key' EXIT
+          paths=$(nix path-info --all --json \
+            | jq -r 'to_entries[] | select(.value.ultimate == true) | .key')
+          if [ -z "$paths" ]; then
+            echo "No ultimate paths to sign; skipping."
+            exit 0
+          fi
+          echo "$paths" | xargs nix store sign --key-file /tmp/nix-signing-key
+          echo "$paths" | xargs nix copy --to 's3://testquorum-nix-public?endpoint=https://ba58a56742691d9efc310cca51093d04.r2.cloudflarestorage.com&region=auto'
+        env:
+          SIGNING_KEY: ${{ secrets.NIX_SIGNING_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
