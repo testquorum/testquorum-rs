@@ -1,0 +1,50 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@fd24c48048070c1be9acd18c9d369a83f0fe94d7 # v31
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+
+      - name: Enter CI devShell
+        uses: nicknovitski/nix-develop@9be7cfb4b10451d3390a75dc18ad0465bed4932a # v1
+        with:
+          arguments: .#ci
+
+      - name: Build static binary
+        run: |
+          nix build .#testquorum-runner-static --out-link result
+          ls -la result/
+
+      - name: Upload to R2
+        run: |
+          ARCH="${{ matrix.os == 'ubuntu-24.04-arm' && 'aarch64' || 'x86_64' }}"
+          COMMIT_SHA="${{ github.sha }}"
+          SOURCE_FILE="result/testquorum-runner-${ARCH}.zst"
+          DEST_PATH="s3://testquorum-assets/binaries/testquorum-runner/${COMMIT_SHA}/testquorum-runner-${ARCH}.zst"
+          
+          echo "Uploading ${SOURCE_FILE} to ${DEST_PATH}"
+          aws s3 cp "${SOURCE_FILE}" "${DEST_PATH}"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL: https://ba58a56742691d9efc310cca51093d04.r2.cloudflarestorage.com
+          AWS_REGION: auto
