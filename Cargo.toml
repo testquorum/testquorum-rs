@@ -1,0 +1,13 @@
+[workspace]
+# Wildcard membership lets Nix builds drop non-target crates from the
+# source tree without breaking workspace resolution.
+members = ["src/*"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+license = "MIT"
+edition = "2021"
+
+[workspace.metadata.crane]
+name = "testquorum-workspace"

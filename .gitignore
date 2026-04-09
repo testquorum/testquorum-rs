@@ -1,0 +1,7 @@
+target/
+.claude/
+.direnv/
+.envrc.local
+result
+result-*
+*.local.toml
