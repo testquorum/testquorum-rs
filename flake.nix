@@ -99,10 +99,60 @@
             src = fileSetForCrate ./src/testquorum-runner;
           });
 
+          # Static musl build for portable CI binaries
+          testquorum-runner-static =
+            let
+              muslToolchain = fenix.packages.${system}.combine [
+                (fenix.packages.${system}.stable.withComponents [
+                  "cargo"
+                  "clippy"
+                  "rust-src"
+                  "rustc"
+                ])
+                fenix.packages.${system}.targets.${
+                if system == "aarch64-linux" then "aarch64-unknown-linux-musl" else "x86_64-unknown-linux-musl"
+                }.stable.rust-std
+              ];
+              muslCraneLib = (crane.mkLib pkgs).overrideToolchain muslToolchain;
+              muslArgs = {
+                inherit version;
+                strictDeps = true;
+                buildInputs = [ ];
+                nativeBuildInputs = [ ];
+                CARGO_BUILD_TARGET = if system == "aarch64-linux" then "aarch64-unknown-linux-musl" else "x86_64-unknown-linux-musl";
+                CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
+              };
+              muslCargoArtifacts = muslCraneLib.buildDepsOnly (muslArgs // {
+                pname = "testquorum-runner-musl-deps";
+                version = "git";
+                src = fileSetForCrate ./src/testquorum-runner;
+              });
+              muslBinary = muslCraneLib.buildPackage (muslArgs // {
+                pname = "testquorum-runner";
+                cargoExtraArgs = "-p testquorum-runner";
+                src = fileSetForCrate ./src/testquorum-runner;
+                cargoArtifacts = muslCargoArtifacts;
+                doCheck = false;
+              });
+              archSuffix = if system == "aarch64-linux" then "aarch64" else "x86_64";
+            in
+            pkgs.stdenv.mkDerivation {
+              name = "testquorum-runner-static-${archSuffix}";
+              inherit version;
+              buildInputs = [ pkgs.zstd muslBinary ];
+              phases = [ "installPhase" ];
+              installPhase = ''
+                mkdir -p $out
+                zstd -19 --long --force --no-progress \
+                  -o $out/testquorum-runner-${archSuffix}.zst \
+                  ${muslBinary}/bin/testquorum-runner
+              '';
+            };
+
         in
         {
           packages = {
-            inherit testquorum-runner;
+            inherit testquorum-runner testquorum-runner-static;
             default = testquorum-runner;
           };
 
