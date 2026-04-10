@@ -62,7 +62,13 @@
             };
           };
 
-          src = craneLib.cleanCargoSource (craneLib.path ./.);
+          src = lib.fileset.toSource {
+            root = ./.;
+            fileset = lib.fileset.unions [
+              (craneLib.fileset.commonCargoSources ./.)
+              (lib.fileset.fileFilter (file: file.hasExt "json") ./src)
+            ];
+          };
           inherit (craneLib.crateNameFromCargoToml { inherit src; }) version;
 
           fileSetForCrate = crate:
@@ -72,6 +78,7 @@
                 ./Cargo.toml
                 ./Cargo.lock
                 (craneLib.fileset.commonCargoSources crate)
+                (lib.fileset.fileFilter (file: file.hasExt "json") crate)
               ];
             };
 
@@ -91,6 +98,12 @@
           cargoArtifacts = craneLib.buildDepsOnly (commonArgs // {
             pname = "testquorum-deps";
             version = "git";
+          });
+
+          testquorum-api = craneLib.buildPackage (individualCrateArgs // {
+            pname = "testquorum-api";
+            cargoExtraArgs = "-p testquorum-api";
+            src = fileSetForCrate ./src/testquorum-api;
           });
 
           testquorum-runner = craneLib.buildPackage (individualCrateArgs // {
@@ -125,7 +138,7 @@
               muslCargoArtifacts = muslCraneLib.buildDepsOnly (muslArgs // {
                 pname = "testquorum-runner-musl-deps";
                 version = "git";
-                src = fileSetForCrate ./src/testquorum-runner;
+                inherit src;
               });
               muslBinary = muslCraneLib.buildPackage (muslArgs // {
                 pname = "testquorum-runner";
@@ -152,7 +165,7 @@
         in
         {
           packages = {
-            inherit testquorum-runner testquorum-runner-static;
+            inherit testquorum-api testquorum-runner testquorum-runner-static;
             default = testquorum-runner;
           };
 
@@ -174,7 +187,7 @@
           formatter = treefmtEval.config.build.wrapper;
 
           checks = {
-            inherit testquorum-runner;
+            inherit testquorum-api testquorum-runner;
 
             testquorum-clippy = craneLib.cargoClippy (commonArgs // {
               inherit cargoArtifacts;
