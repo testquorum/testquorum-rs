@@ -1,0 +1,10 @@
+[package]
+name = "testquorum-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+progenitor = "0.13"
+reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls"] }
+serde = { version = "1.0", features = ["derive"] }

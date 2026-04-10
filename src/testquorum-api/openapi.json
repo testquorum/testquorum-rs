@@ -1,0 +1,280 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "TestQuorum API",
+    "description": "",
+    "license": {
+      "name": ""
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "logout",
+        "responses": {
+          "200": {
+            "description": "Logged out successfully"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing Bearer token"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/auth/session": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "session_info",
+        "responses": {
+          "200": {
+            "description": "Session information retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing Bearer token"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/health/": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "Service is healthy"
+          },
+          "503": {
+            "description": "Service is draining or unhealthy"
+          }
+        }
+      }
+    },
+    "/quote/": {
+      "get": {
+        "tags": [
+          "quote"
+        ],
+        "operationId": "get_quote",
+        "responses": {
+          "200": {
+            "description": "Quote retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuoteResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No valid quote available"
+          }
+        }
+      }
+    },
+    "/repos/": {
+      "get": {
+        "tags": [
+          "repos"
+        ],
+        "operationId": "list_repos",
+        "responses": {
+          "200": {
+            "description": "Repositories listed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RepoResponse"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing Bearer token"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CurrencyPrices": {
+        "type": "object",
+        "required": [
+          "eur",
+          "usd",
+          "gbp"
+        ],
+        "properties": {
+          "eur": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "gbp": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "usd": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "EpochSecs": {
+        "type": "integer",
+        "format": "int64",
+        "description": "Unix epoch seconds.",
+        "minimum": 0
+      },
+      "QuoteResponse": {
+        "type": "object",
+        "description": "A pricing quote response containing subscription tiers and pricing information.",
+        "required": [
+          "quote_id",
+          "created_at",
+          "valid_until",
+          "tiers"
+        ],
+        "properties": {
+          "created_at": {
+            "$ref": "#/components/schemas/EpochSecs"
+          },
+          "quote_id": {
+            "type": "string"
+          },
+          "tiers": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/TierPrices"
+            }
+          },
+          "valid_until": {
+            "$ref": "#/components/schemas/EpochSecs"
+          }
+        }
+      },
+      "RepoResponse": {
+        "type": "object",
+        "required": [
+          "full_name",
+          "source",
+          "source_id",
+          "state"
+        ],
+        "properties": {
+          "full_name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "state": {
+            "$ref": "#/components/schemas/RepoState"
+          }
+        }
+      },
+      "RepoState": {
+        "type": "string",
+        "description": "The subscription state of a repository.",
+        "enum": [
+          "inactive"
+        ]
+      },
+      "SessionResponse": {
+        "type": "object",
+        "required": [
+          "display_name"
+        ],
+        "properties": {
+          "display_name": {
+            "type": "string"
+          }
+        }
+      },
+      "SubscriptionState": {
+        "type": "string",
+        "enum": [
+          "inactive"
+        ]
+      },
+      "Tier": {
+        "type": "string",
+        "enum": [
+          "starter",
+          "standard",
+          "monorepo"
+        ]
+      },
+      "TierPrices": {
+        "type": "object",
+        "required": [
+          "monthly",
+          "annual"
+        ],
+        "properties": {
+          "annual": {
+            "$ref": "#/components/schemas/CurrencyPrices"
+          },
+          "monthly": {
+            "$ref": "#/components/schemas/CurrencyPrices"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearer_auth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "security": [
+    {
+      "bearer_auth": []
+    }
+  ]
+}
