@@ -20,9 +20,17 @@ jobs:
 
       - name: Install Nix
         uses: cachix/install-nix-action@fd24c48048070c1be9acd18c9d369a83f0fe94d7 # v31
+
+      - name: Setup Nix S3 cache
+        uses: lemmih/nix-s3-cache-action@29264f2f7ee0569b80a4c91ef27734c92ac69026 # v1
         with:
-          extra_nix_config: |
-            accept-flake-config = true
+          s3-endpoint: ba58a56742691d9efc310cca51093d04.r2.cloudflarestorage.com
+          bucket: testquorum-nix-public
+          region: auto
+          aws-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          public-key: "nixcache.testquorum.dev-1:w8eYAwlsCrkOoPWvRFZa/haM19qkHu0kAHD0zkGN+0g="
+          private-key: ${{ secrets.NIX_SIGNING_KEY }}
 
       - name: Enter CI devShell
         uses: nicknovitski/nix-develop@9be7cfb4b10451d3390a75dc18ad0465bed4932a # v1
