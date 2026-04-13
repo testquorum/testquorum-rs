@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+description = "Progenitor generated Rust interface to api.testquorum.dev"
+
 [dependencies]
 progenitor = "0.13"
 reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls"] }
