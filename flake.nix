@@ -31,11 +31,12 @@
 
   outputs = { self, nixpkgs, flake-utils, treefmt-nix, fenix, crane, advisory-db, nix-fast-build }:
     let
-      systems = [ "aarch64-linux" "x86_64-linux" ];
+      systems = [ "aarch64-linux" "x86_64-linux" "aarch64-darwin" ];
     in
     flake-utils.lib.eachSystem systems
       (system:
         let
+          isLinux = builtins.match "^.*linux.*$" system != null;
           pkgs = nixpkgs.legacyPackages.${system};
           lib = pkgs.lib;
           toolchain = fenix.packages.${system}.combine [
@@ -152,8 +153,10 @@
         in
         {
           packages = {
-            inherit testquorum-runner testquorum-runner-static;
+            inherit testquorum-runner;
             default = testquorum-runner;
+          } // lib.optionalAttrs isLinux {
+            inherit testquorum-runner-static;
           };
 
           devShells.default = craneLib.devShell {

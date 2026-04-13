@@ -9,9 +9,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-24.04
-          - ubuntu-24.04-arm
+        include:
+          - os: ubuntu-24.04
+            arch: x86_64
+          - os: ubuntu-24.04-arm
+            arch: aarch64
+          - os: macos-26
+            arch: aarch64
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -37,16 +41,32 @@ jobs:
         with:
           arguments: .#ci
 
-      - name: Build static binary
+      - name: Build binary
         run: |
-          nix build .#testquorum-runner-static --out-link result
-          ls -la result/
+          if [ "${{ matrix.os }}" = "macos-26" ]; then
+            nix build .#testquorum-runner --out-link result
+            ls -la result/bin/
+          else
+            nix build .#testquorum-runner-static --out-link result
+            ls -la result/
+          fi
 
       - name: Upload to R2
         run: |
-          ARCH="${{ matrix.os == 'ubuntu-24.04-arm' && 'aarch64' || 'x86_64' }}"
+          ARCH="${{ matrix.arch }}"
           COMMIT_SHA="${{ github.sha }}"
-          SOURCE_FILE="result/testquorum-runner-${ARCH}.zst"
+          
+          if [ "${{ matrix.os }}" = "macos-26" ]; then
+            # Darwin: compress the regular binary
+            SOURCE_FILE="result/bin/testquorum-runner"
+            TEMP_FILE="/tmp/testquorum-runner-${ARCH}.zst"
+            zstd -19 --long --force --no-progress -o "${TEMP_FILE}" "${SOURCE_FILE}"
+            SOURCE_FILE="${TEMP_FILE}"
+          else
+            # Linux: use pre-compressed static binary
+            SOURCE_FILE="result/testquorum-runner-${ARCH}.zst"
+          fi
+          
           DEST_PATH="s3://testquorum-assets/binaries/testquorum-runner/${COMMIT_SHA}/testquorum-runner-${ARCH}.zst"
           
           echo "Uploading ${SOURCE_FILE} to ${DEST_PATH}"
