@@ -55,6 +55,10 @@ jobs:
           cp /tmp/openapi-live.json src/testquorum-api/openapi.json
           sed -i 's/^version = ".*"/version = "${{ steps.compare.outputs.live_version }}"/' src/testquorum-api/Cargo.toml
 
+      - name: Update lockfile
+        if: steps.compare.outputs.version_ok == 'true' && steps.compare.outputs.content_changed == 'true'
+        run: cargo update --workspace
+
       - name: Create or update PR
         uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v7
         with:
