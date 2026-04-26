@@ -1,0 +1,70 @@
+name: API Spec Sync
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Fetch live API spec
+        run: |
+          curl -sSL -o /tmp/openapi-live.json https://api.testquorum.dev/openapi.json
+
+      - name: Compare versions and spec content
+        id: compare
+        run: |
+          LIVE_VERSION=$(jq -r '.info.version' /tmp/openapi-live.json)
+          COMMITTED_VERSION=$(jq -r '.info.version' src/testquorum-api/openapi.json)
+
+          echo "live_version=${LIVE_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "committed_version=${COMMITTED_VERSION}" >> "$GITHUB_OUTPUT"
+
+          if dpkg --compare-versions "${LIVE_VERSION}" ge "${COMMITTED_VERSION}"; then
+            echo "version_ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "version_ok=false" >> "$GITHUB_OUTPUT"
+            echo "Live version ${LIVE_VERSION} is older than committed ${COMMITTED_VERSION}"
+            exit 0
+          fi
+
+          jq --sort-keys 'del(.info.version)' /tmp/openapi-live.json > /tmp/live-body.json
+          jq --sort-keys 'del(.info.version)' src/testquorum-api/openapi.json > /tmp/committed-body.json
+
+          if diff -q /tmp/live-body.json /tmp/committed-body.json > /dev/null; then
+            echo "content_changed=false" >> "$GITHUB_OUTPUT"
+            echo "Versions differ but spec content is identical"
+          else
+            echo "content_changed=true" >> "$GITHUB_OUTPUT"
+            echo "Spec content has changed"
+          fi
+
+      - name: Update spec and crate version
+        if: steps.compare.outputs.version_ok == 'true' && steps.compare.outputs.content_changed == 'true'
+        run: |
+          cp /tmp/openapi-live.json src/testquorum-api/openapi.json
+          sed -i 's/^version = ".*"/version = "${{ steps.compare.outputs.live_version }}"/' src/testquorum-api/Cargo.toml
+
+      - name: Create or update PR
+        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v7
+        with:
+          token: ${{ secrets.API_SPEC_SYNC_TOKEN }}
+          branch: updates/api-spec
+          base: main
+          delete-branch: true
+          title: 'Update API spec to ${{ steps.compare.outputs.live_version }}'
+          body: |
+            This PR updates the OpenAPI spec to version `${{ steps.compare.outputs.live_version }}`.
+
+            Changes were detected between the live API spec and the committed version `${{ steps.compare.outputs.committed_version }}`.
+          commit-message: 'Update API spec to ${{ steps.compare.outputs.live_version }}'
