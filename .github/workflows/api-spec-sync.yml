@@ -63,6 +63,8 @@ jobs:
           base: main
           delete-branch: true
           title: 'Update API spec to ${{ steps.compare.outputs.live_version }}'
+          author: 'TestQuorum CI Bot <ci-bot@testquorum.dev>'
+          committer: 'TestQuorum CI Bot <ci-bot@testquorum.dev>'
           body: |
             This PR updates the OpenAPI spec to version `${{ steps.compare.outputs.live_version }}`.
 
