@@ -6,7 +6,7 @@
     "license": {
       "name": ""
     },
-    "version": "0.1.0"
+    "version": "0.1.124"
   },
   "paths": {
     "/auth/logout": {
@@ -71,7 +71,10 @@
           "503": {
             "description": "Service is draining or unhealthy"
           }
-        }
+        },
+        "security": [
+          {}
+        ]
       }
     },
     "/quote/": {
@@ -94,7 +97,10 @@
           "503": {
             "description": "No valid quote available"
           }
-        }
+        },
+        "security": [
+          {}
+        ]
       }
     },
     "/repos/": {
