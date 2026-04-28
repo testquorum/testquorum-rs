@@ -6,7 +6,7 @@
     "license": {
       "name": ""
     },
-    "version": "0.1.124"
+    "version": "0.1.134"
   },
   "paths": {
     "/auth/logout": {
@@ -49,6 +49,178 @@
           },
           "401": {
             "description": "Unauthorized - invalid or missing Bearer token"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/billing/": {
+      "get": {
+        "tags": [
+          "billing"
+        ],
+        "operationId": "list_billing",
+        "responses": {
+          "200": {
+            "description": "Repositories with subscription status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BillingRepo"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/billing/cancel": {
+      "post": {
+        "tags": [
+          "billing"
+        ],
+        "operationId": "cancel_subscription",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Subscription marked for cancellation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Not the owner"
+          },
+          "404": {
+            "description": "Repository or subscription not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/billing/checkout": {
+      "post": {
+        "tags": [
+          "billing"
+        ],
+        "operationId": "start_checkout",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Checkout session created or subscription updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "409": {
+            "description": "Quote expired"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/billing/portal": {
+      "post": {
+        "tags": [
+          "billing"
+        ],
+        "operationId": "open_portal",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PortalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Billing portal session created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Repository or subscription not found"
+          },
+          "500": {
+            "description": "Internal server error"
           }
         },
         "security": [
@@ -140,6 +312,111 @@
   },
   "components": {
     "schemas": {
+      "BillingRepo": {
+        "type": "object",
+        "required": [
+          "repo_id",
+          "full_name"
+        ],
+        "properties": {
+          "full_name": {
+            "type": "string"
+          },
+          "repo_id": {
+            "type": "string"
+          },
+          "subscription": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/RepoSubscription"
+              }
+            ],
+            "nullable": true
+          }
+        }
+      },
+      "Cadence": {
+        "type": "string",
+        "enum": [
+          "monthly",
+          "annual"
+        ]
+      },
+      "CancelRequest": {
+        "type": "object",
+        "required": [
+          "repo_id"
+        ],
+        "properties": {
+          "repo_id": {
+            "type": "string"
+          }
+        }
+      },
+      "CancelResponse": {
+        "type": "object",
+        "required": [
+          "current_period_end",
+          "cancel_at_period_end"
+        ],
+        "properties": {
+          "cancel_at_period_end": {
+            "type": "boolean"
+          },
+          "current_period_end": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "CheckoutRequest": {
+        "type": "object",
+        "required": [
+          "repo_id",
+          "tier",
+          "cadence",
+          "currency",
+          "quote_id"
+        ],
+        "properties": {
+          "cadence": {
+            "$ref": "#/components/schemas/Cadence"
+          },
+          "currency": {
+            "$ref": "#/components/schemas/Currency"
+          },
+          "quote_id": {
+            "type": "string"
+          },
+          "repo_id": {
+            "type": "string"
+          },
+          "tier": {
+            "$ref": "#/components/schemas/Tier"
+          }
+        }
+      },
+      "CheckoutResponse": {
+        "type": "object",
+        "properties": {
+          "checkout_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "updated": {
+            "type": "boolean",
+            "nullable": true
+          }
+        }
+      },
+      "Currency": {
+        "type": "string",
+        "enum": [
+          "eur",
+          "usd",
+          "gbp"
+        ]
+      },
       "CurrencyPrices": {
         "type": "object",
         "required": [
@@ -170,6 +447,28 @@
         "format": "int64",
         "description": "Unix epoch seconds.",
         "minimum": 0
+      },
+      "PortalRequest": {
+        "type": "object",
+        "required": [
+          "repo_id"
+        ],
+        "properties": {
+          "repo_id": {
+            "type": "string"
+          }
+        }
+      },
+      "PortalResponse": {
+        "type": "object",
+        "required": [
+          "portal_url"
+        ],
+        "properties": {
+          "portal_url": {
+            "type": "string"
+          }
+        }
       },
       "QuoteResponse": {
         "type": "object",
@@ -227,8 +526,58 @@
         "type": "string",
         "description": "The subscription state of a repository.",
         "enum": [
-          "inactive"
+          "inactive",
+          "active"
         ]
+      },
+      "RepoSubscription": {
+        "type": "object",
+        "required": [
+          "stripe_subscription_id",
+          "stripe_customer_id",
+          "tier",
+          "cadence",
+          "currency",
+          "status",
+          "current_period_end",
+          "cancel_at_period_end",
+          "unit_amount_cents",
+          "last_synced_at"
+        ],
+        "properties": {
+          "cadence": {
+            "$ref": "#/components/schemas/Cadence"
+          },
+          "cancel_at_period_end": {
+            "type": "boolean"
+          },
+          "currency": {
+            "$ref": "#/components/schemas/Currency"
+          },
+          "current_period_end": {
+            "$ref": "#/components/schemas/EpochSecs"
+          },
+          "last_synced_at": {
+            "$ref": "#/components/schemas/EpochSecs"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SubscriptionStatus"
+          },
+          "stripe_customer_id": {
+            "type": "string"
+          },
+          "stripe_subscription_id": {
+            "type": "string"
+          },
+          "tier": {
+            "$ref": "#/components/schemas/Tier"
+          },
+          "unit_amount_cents": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
       },
       "SessionResponse": {
         "type": "object",
@@ -244,7 +593,21 @@
       "SubscriptionState": {
         "type": "string",
         "enum": [
-          "inactive"
+          "inactive",
+          "active"
+        ]
+      },
+      "SubscriptionStatus": {
+        "type": "string",
+        "enum": [
+          "incomplete",
+          "incomplete_expired",
+          "trialing",
+          "active",
+          "past_due",
+          "canceled",
+          "unpaid",
+          "paused"
         ]
       },
       "Tier": {
