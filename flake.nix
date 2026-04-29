@@ -6,7 +6,7 @@
       "https://nixcache.testquorum.dev"
     ];
     extra-trusted-public-keys = [
-      "nixcache.testquorum.dev-1:w8eYAwlsCrkOoPWvRFZa/haM19qkHu0kAHD0zkGN+0g="
+      "nixcache.testquorum.dev-1:aS+CJF8O8Ebirc6hypMfq/061h5TJlbsej1+zUJHPec="
     ];
   };
 
