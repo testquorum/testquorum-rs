@@ -21,10 +21,10 @@ jobs:
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
       - name: Install Nix
-        uses: cachix/install-nix-action@fd24c48048070c1be9acd18c9d369a83f0fe94d7 # v31
+        uses: cachix/install-nix-action@2126ae7fc54c9df00dd18f7f18754393182c73cd # v31.9.1
 
       - name: Setup Nix S3 cache
-        uses: lemmih/nix-s3-cache-action@29264f2f7ee0569b80a4c91ef27734c92ac69026 # v1
+        uses: testquorum/nix-s3-generations@v0.1.3
         with:
           s3-endpoint: ba58a56742691d9efc310cca51093d04.r2.cloudflarestorage.com
           bucket: testquorum-nix-public
@@ -40,5 +40,5 @@ jobs:
           arguments: .#ci
 
       - name: Build all outputs
-        run: nix-fast-build --no-nom --skip-cached --flake '.#ci'
+        run: nix-fast-build --no-nom --flake '.#ci'
 
