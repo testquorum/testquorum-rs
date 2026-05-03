@@ -39,6 +39,6 @@ jobs:
         with:
           arguments: .#ci
 
-      - name: Build all outputs
-        run: nix-fast-build --no-nom --flake '.#ci'
+      - name: Build and test
+        run: nix run .
 

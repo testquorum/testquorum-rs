@@ -1,0 +1,2 @@
+[managers.nix]
+attrset = "ci"

@@ -1,0 +1,172 @@
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct Config {
+    #[serde(default = "default_managers")]
+    pub managers: Managers,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct Managers {
+    #[serde(default = "default_true")]
+    pub autodetect: bool,
+    pub nix: Option<NixConfig>,
+}
+
+fn default_managers() -> Managers {
+    Managers {
+        autodetect: true,
+        nix: None,
+    }
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct NixConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_attrset")]
+    pub attrset: String,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_attrset() -> String {
+    "checks".to_string()
+}
+
+pub fn from_str(s: &str) -> Result<Config, toml::de::Error> {
+    toml::from_str(s)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_full_config() {
+        let toml = r#"
+[managers]
+autodetect = true
+
+[managers.nix]
+enabled = true
+attrset = "checks"
+"#;
+        let config = from_str(toml).unwrap();
+        assert!(config.managers.autodetect);
+        assert_eq!(
+            config.managers.nix,
+            Some(NixConfig {
+                enabled: true,
+                attrset: "checks".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn test_default_config() {
+        let config = from_str("").unwrap();
+        assert!(config.managers.autodetect);
+        assert_eq!(config.managers.nix, None);
+    }
+
+    #[test]
+    fn test_enabled_false() {
+        let toml = r#"
+[managers]
+autodetect = true
+
+[managers.nix]
+enabled = false
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(
+            config.managers.nix,
+            Some(NixConfig {
+                enabled: false,
+                attrset: "checks".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn test_attrset_ci() {
+        let toml = r#"
+[managers]
+autodetect = true
+
+[managers.nix]
+enabled = true
+attrset = "ci"
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(
+            config.managers.nix,
+            Some(NixConfig {
+                enabled: true,
+                attrset: "ci".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn test_attrset_default_when_omitted() {
+        let toml = r#"
+[managers]
+autodetect = true
+
+[managers.nix]
+enabled = true
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(
+            config.managers.nix,
+            Some(NixConfig {
+                enabled: true,
+                attrset: "checks".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn test_partial_config() {
+        let toml = r#"
+[managers]
+autodetect = false
+"#;
+        let config = from_str(toml).unwrap();
+        assert!(!config.managers.autodetect);
+        assert_eq!(config.managers.nix, None);
+    }
+
+    #[test]
+    fn test_invalid_toml() {
+        let result = from_str("not valid toml {{{");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_config_equality() {
+        let config1 = Config {
+            managers: Managers {
+                autodetect: true,
+                nix: Some(NixConfig {
+                    enabled: true,
+                    attrset: "checks".to_string(),
+                }),
+            },
+        };
+        let toml = r#"
+[managers]
+autodetect = true
+
+[managers.nix]
+enabled = true
+attrset = "checks"
+"#;
+        let config2 = from_str(toml).unwrap();
+        assert_eq!(config1, config2);
+    }
+}

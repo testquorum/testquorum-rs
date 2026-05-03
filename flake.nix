@@ -77,6 +77,7 @@
               fileset = lib.fileset.unions [
                 ./Cargo.toml
                 ./Cargo.lock
+                ./src
                 (craneLib.fileset.commonCargoSources crate)
                 (lib.fileset.fileFilter (file: file.hasExt "json") crate)
               ];
@@ -104,6 +105,12 @@
             pname = "testquorum-api";
             cargoExtraArgs = "-p testquorum-api";
             src = fileSetForCrate ./src/testquorum-api;
+          });
+
+          testquorum-config = craneLib.buildPackage (individualCrateArgs // {
+            pname = "testquorum-config";
+            cargoExtraArgs = "-p testquorum-config";
+            src = fileSetForCrate ./src/testquorum-config;
           });
 
           testquorum-runner = craneLib.buildPackage (individualCrateArgs // {
@@ -165,7 +172,7 @@
         in
         {
           packages = {
-            inherit testquorum-api testquorum-runner testquorum-runner-static;
+            inherit testquorum-api testquorum-config testquorum-runner testquorum-runner-static;
             default = testquorum-runner;
           };
 
@@ -187,7 +194,7 @@
           formatter = treefmtEval.config.build.wrapper;
 
           checks = {
-            inherit testquorum-api testquorum-runner;
+            inherit testquorum-api testquorum-config testquorum-runner;
 
             testquorum-clippy = craneLib.cargoClippy (commonArgs // {
               inherit cargoArtifacts;
