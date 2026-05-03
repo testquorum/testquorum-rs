@@ -22,7 +22,7 @@ jobs:
         uses: cachix/install-nix-action@2126ae7fc54c9df00dd18f7f18754393182c73cd # v31.9.1
 
       - name: Setup Nix S3 cache
-        uses: testquorum/nix-s3-generations@v0.1.0
+        uses: testquorum/nix-s3-generations@08090ea0b9ce0eab04ba614d887c55bdaa0a6f52 # v0.1.3
         with:
           s3-endpoint: ba58a56742691d9efc310cca51093d04.r2.cloudflarestorage.com
           bucket: testquorum-nix-public
