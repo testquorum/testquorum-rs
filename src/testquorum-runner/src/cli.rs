@@ -1,10 +1,14 @@
+use std::collections::HashMap;
+
 use clap::Parser;
 use clap::Subcommand;
 use futures::StreamExt;
+use rand::seq::SliceRandom;
 
 use crate::CargoManager;
 use crate::ManagerRegistry;
 use crate::NixManager;
+use crate::Test;
 use crate::TestEvent;
 use crate::config::find_config_file;
 use crate::detect_cargo;
@@ -103,7 +107,8 @@ async fn discover_only(registry: &ManagerRegistry) -> Result<RunResult, anyhow::
 
     for manager in registry.managers() {
         match manager.discover().await {
-            Ok(tests) => {
+            Ok(mut tests) => {
+                tests.sort_by(|a, b| a.name.cmp(&b.name));
                 println!("{}: {} test(s)", manager.name(), tests.len());
                 for test in &tests {
                     println!("  - {}", test.name);
@@ -130,23 +135,44 @@ async fn discover_and_run(registry: &ManagerRegistry) -> Result<RunResult, anyho
     let mut had_errors = false;
     let mut total_passed = 0;
     let mut total_failed = 0;
-    let mut total_discovered = 0;
 
+    // Phase 1: discover all tests from all managers.
+    let mut all_tests: Vec<Test> = Vec::new();
     for manager in registry.managers() {
-        let tests = match manager.discover().await {
-            Ok(tests) => tests,
+        match manager.discover().await {
+            Ok(tests) => all_tests.extend(tests),
             Err(e) => {
                 eprintln!("error discovering from {}: {}", manager.name(), e);
                 had_errors = true;
-                continue;
             }
+        }
+    }
+
+    if all_tests.is_empty() && !had_errors {
+        println!("no tests found");
+        return Ok(RunResult::Success);
+    }
+
+    // Phase 2: randomise order.
+    let mut rng = rand::thread_rng();
+    all_tests.shuffle(&mut rng);
+
+    // Phase 3: group by manager so each manager receives only its own tests.
+    let mut by_manager: HashMap<String, Vec<Test>> = HashMap::new();
+    for test in all_tests {
+        by_manager
+            .entry(test.manager.clone())
+            .or_default()
+            .push(test);
+    }
+
+    // Phase 4: run each manager sequentially with its subset.
+    for manager in registry.managers() {
+        let tests = match by_manager.remove(manager.name()) {
+            Some(t) if !t.is_empty() => t,
+            _ => continue,
         };
 
-        if tests.is_empty() {
-            continue;
-        }
-
-        total_discovered += tests.len();
         println!(
             "\nrunning {} test(s) from {}...",
             tests.len(),
@@ -161,11 +187,6 @@ async fn discover_and_run(registry: &ManagerRegistry) -> Result<RunResult, anyho
                 Transition::Failed => total_failed += 1,
             }
         }
-    }
-
-    if total_discovered == 0 && !had_errors {
-        println!("no tests found");
-        return Ok(RunResult::Success);
     }
 
     println!("\n{} passed, {} failed", total_passed, total_failed);
