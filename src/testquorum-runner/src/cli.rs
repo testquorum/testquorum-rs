@@ -2,10 +2,12 @@ use clap::Parser;
 use clap::Subcommand;
 use futures::StreamExt;
 
+use crate::CargoManager;
 use crate::ManagerRegistry;
 use crate::NixManager;
 use crate::TestEvent;
 use crate::config::find_config_file;
+use crate::detect_cargo;
 use crate::detect_nix;
 
 pub(crate) enum RunResult {
@@ -61,6 +63,7 @@ fn default_config() -> testquorum_config::Config {
         managers: testquorum_config::Managers {
             autodetect: true,
             nix: None,
+            cargo: None,
         },
     }
 }
@@ -78,6 +81,16 @@ fn build_registry(config: &testquorum_config::Config) -> Result<ManagerRegistry,
         match detect_nix() {
             Ok(()) => registry.register(Box::new(NixManager::new(nix_attrset))),
             Err(e) => eprintln!("warning: nix detection failed: {}", e),
+        }
+    }
+
+    let cargo_config = config.managers.cargo.as_ref();
+    let cargo_enabled = cargo_config.map(|c| c.enabled).unwrap_or(true);
+
+    if config.managers.autodetect && cargo_enabled {
+        match detect_cargo() {
+            Ok(()) => registry.register(Box::new(CargoManager::new())),
+            Err(e) => eprintln!("warning: cargo detection failed: {}", e),
         }
     }
 

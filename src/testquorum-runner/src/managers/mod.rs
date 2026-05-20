@@ -5,8 +5,11 @@ use futures::Stream;
 use serde::Deserialize;
 use serde::Serialize;
 
+pub(crate) mod cargo;
 pub(crate) mod nix;
 
+pub(crate) use cargo::CargoManager;
+pub(crate) use cargo::detect_cargo;
 pub(crate) use nix::NixManager;
 pub(crate) use nix::detect_nix;
 

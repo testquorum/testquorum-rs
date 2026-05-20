@@ -7,11 +7,13 @@ mod registry;
 // genuine re-exports, not local imports — make that intent explicit.
 use cli::RunResult;
 use cli::run_cli;
+pub(crate) use managers::CargoManager;
 pub(crate) use managers::NixManager;
 pub(crate) use managers::Test;
 pub(crate) use managers::TestEvent;
 pub(crate) use managers::TestManager;
 pub(crate) use managers::TestOutcome;
+pub(crate) use managers::detect_cargo;
 pub(crate) use managers::detect_nix;
 pub(crate) use registry::ManagerRegistry;
 
