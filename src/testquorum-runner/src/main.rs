@@ -1,5 +1,6 @@
 mod cli;
 mod config;
+mod environments;
 mod managers;
 mod registry;
 
@@ -7,6 +8,8 @@ mod registry;
 // genuine re-exports, not local imports — make that intent explicit.
 use cli::RunResult;
 use cli::run_cli;
+pub(crate) use environments::Environment;
+pub(crate) use environments::detect_environment;
 pub(crate) use managers::CargoManager;
 pub(crate) use managers::NixManager;
 pub(crate) use managers::Test;
