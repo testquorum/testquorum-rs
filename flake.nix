@@ -122,6 +122,21 @@
           # Static musl build for portable CI binaries
           testquorum-runner-static =
             let
+              muslTriple = if system == "aarch64-linux" then "aarch64-unknown-linux-musl" else "x86_64-unknown-linux-musl";
+              # Cross-compile C dependencies (e.g. aws-lc-sys pulled in by reqwest's
+              # rustls feature) against musl headers; otherwise build scripts pick
+              # up glibc's fortify macros and the final link fails on missing
+              # symbols like __memcpy_chk and __isoc23_strtol.
+              muslPkgs =
+                if system == "aarch64-linux"
+                then pkgs.pkgsCross.aarch64-multiplatform-musl
+                else pkgs.pkgsCross.musl64;
+              muslCC = "${muslPkgs.stdenv.cc}/bin/${muslPkgs.stdenv.cc.targetPrefix}cc";
+              muslAR = "${muslPkgs.stdenv.cc.bintools}/bin/${muslPkgs.stdenv.cc.targetPrefix}ar";
+              cargoLinkerEnv =
+                if system == "aarch64-linux"
+                then "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER"
+                else "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER";
               muslToolchain = fenix.packages.${system}.combine [
                 (fenix.packages.${system}.stable.withComponents [
                   "cargo"
@@ -129,9 +144,7 @@
                   "rust-src"
                   "rustc"
                 ])
-                fenix.packages.${system}.targets.${
-                if system == "aarch64-linux" then "aarch64-unknown-linux-musl" else "x86_64-unknown-linux-musl"
-                }.stable.rust-std
+                fenix.packages.${system}.targets.${muslTriple}.stable.rust-std
               ];
               muslCraneLib = (crane.mkLib pkgs).overrideToolchain muslToolchain;
               muslArgs = {
@@ -139,8 +152,11 @@
                 strictDeps = true;
                 buildInputs = [ ];
                 nativeBuildInputs = [ ];
-                CARGO_BUILD_TARGET = if system == "aarch64-linux" then "aarch64-unknown-linux-musl" else "x86_64-unknown-linux-musl";
+                CARGO_BUILD_TARGET = muslTriple;
                 CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
+                "CC_${muslTriple}" = muslCC;
+                "AR_${muslTriple}" = muslAR;
+                ${cargoLinkerEnv} = muslCC;
               };
               muslCargoArtifacts = muslCraneLib.buildDepsOnly (muslArgs // {
                 pname = "testquorum-runner-musl-deps";

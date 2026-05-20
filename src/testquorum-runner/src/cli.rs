@@ -6,12 +6,14 @@ use futures::StreamExt;
 use rand::seq::SliceRandom;
 
 use crate::CargoManager;
+use crate::Environment;
 use crate::ManagerRegistry;
 use crate::NixManager;
 use crate::Test;
 use crate::TestEvent;
 use crate::config::find_config_file;
 use crate::detect_cargo;
+use crate::detect_environment;
 use crate::detect_nix;
 
 pub(crate) enum RunResult {
@@ -41,9 +43,35 @@ pub(crate) async fn run_cli() -> Result<RunResult, anyhow::Error> {
     let config = load_config()?;
     let registry = build_registry(&config)?;
 
+    let env = detect_environment();
+    print_auth_banner(env.as_ref()).await;
+
     match cli.command {
         Some(Commands::Discover) => discover_only(&registry).await,
         Some(Commands::Run) | None => discover_and_run(&registry).await,
+    }
+}
+
+async fn print_auth_banner(env: &dyn Environment) {
+    match env.authenticated_client().await {
+        Ok(None) => {
+            println!("unauthenticated (env: {})", env.name());
+        }
+        Ok(Some(client)) => match client.session_info().await {
+            Ok(resp) => {
+                println!(
+                    "authed as {} (env: {})",
+                    resp.into_inner().display_name,
+                    env.name()
+                );
+            }
+            Err(e) => {
+                println!("auth failed (env: {}): session lookup: {}", env.name(), e);
+            }
+        },
+        Err(e) => {
+            println!("auth failed (env: {}): {}", env.name(), e);
+        }
     }
 }
 
