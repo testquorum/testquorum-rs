@@ -11,12 +11,14 @@ pub struct Managers {
     #[serde(default = "default_true")]
     pub autodetect: bool,
     pub nix: Option<NixConfig>,
+    pub cargo: Option<CargoConfig>,
 }
 
 fn default_managers() -> Managers {
     Managers {
         autodetect: true,
         nix: None,
+        cargo: None,
     }
 }
 
@@ -26,6 +28,12 @@ pub struct NixConfig {
     pub enabled: bool,
     #[serde(default = "default_attrset")]
     pub attrset: String,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct CargoConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
 }
 
 fn default_true() -> bool {
@@ -142,6 +150,29 @@ autodetect = false
     }
 
     #[test]
+    fn test_cargo_config() {
+        let toml = r#"
+[managers]
+autodetect = true
+
+[managers.cargo]
+enabled = true
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(config.managers.cargo, Some(CargoConfig { enabled: true }));
+    }
+
+    #[test]
+    fn test_cargo_default_when_omitted() {
+        let toml = r#"
+[managers]
+autodetect = true
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(config.managers.cargo, None);
+    }
+
+    #[test]
     fn test_invalid_toml() {
         let result = from_str("not valid toml {{{");
         assert!(result.is_err());
@@ -156,6 +187,7 @@ autodetect = false
                     enabled: true,
                     attrset: "checks".to_string(),
                 }),
+                cargo: None,
             },
         };
         let toml = r#"
