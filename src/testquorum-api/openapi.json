@@ -6,9 +6,205 @@
     "license": {
       "name": ""
     },
-    "version": "0.1.134"
+    "version": "0.1.172"
   },
   "paths": {
+    "/auth/api-keys": {
+      "get": {
+        "tags": [
+          "api-keys"
+        ],
+        "operationId": "list_api_keys",
+        "parameters": [
+          {
+            "name": "repo_id",
+            "in": "query",
+            "description": "When set, only return keys owned by this repository",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "API keys belonging to the authenticated account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ApiKeyResponse"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - requires an administrator key"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "api-keys"
+        ],
+        "operationId": "create_api_key",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateApiKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "API key created. The `secret` field is shown once and never again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedApiKeyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - invalid scope/owner combination, unknown repo, or display name too long"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - requires an administrator key"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/auth/api-keys/{key_id}": {
+      "delete": {
+        "tags": [
+          "api-keys"
+        ],
+        "operationId": "delete_api_key",
+        "parameters": [
+          {
+            "name": "key_id",
+            "in": "path",
+            "description": "The key id returned by create or list",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "API key deleted"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - requires an administrator key, or attempted to delete a UI session key (use POST /auth/logout instead)"
+          },
+          "404": {
+            "description": "API key not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/auth/api-keys/{key_id}/rotate": {
+      "post": {
+        "tags": [
+          "api-keys"
+        ],
+        "operationId": "rotate_api_key",
+        "parameters": [
+          {
+            "name": "key_id",
+            "in": "path",
+            "description": "The key id returned by create or list",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RotateApiKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Old secret revoked, new secret issued. The `secret` field is shown once and never again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedApiKeyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - invalid expires_in_days"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - requires an administrator key, or the target is a UI session key"
+          },
+          "404": {
+            "description": "API key not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/auth/logout": {
       "post": {
         "tags": [
@@ -21,6 +217,9 @@
           },
           "401": {
             "description": "Unauthorized - invalid or missing Bearer token"
+          },
+          "403": {
+            "description": "Forbidden - persistent API keys cannot log out; revoke them via DELETE /auth/api-keys/{key_id}"
           }
         },
         "security": [
@@ -81,6 +280,9 @@
           "401": {
             "description": "Unauthorized"
           },
+          "403": {
+            "description": "Forbidden - billing actions require an administrator key"
+          },
           "500": {
             "description": "Internal server error"
           }
@@ -123,7 +325,7 @@
             "description": "Unauthorized"
           },
           "403": {
-            "description": "Not the owner"
+            "description": "Forbidden - not the owner, or billing actions require an administrator key"
           },
           "404": {
             "description": "Repository or subscription not found"
@@ -172,6 +374,9 @@
           "401": {
             "description": "Unauthorized"
           },
+          "403": {
+            "description": "Forbidden - billing actions require an administrator key"
+          },
           "409": {
             "description": "Quote expired"
           },
@@ -216,6 +421,9 @@
           "401": {
             "description": "Unauthorized"
           },
+          "403": {
+            "description": "Forbidden - billing actions require an administrator key"
+          },
           "404": {
             "description": "Repository or subscription not found"
           },
@@ -230,23 +438,88 @@
         ]
       }
     },
-    "/health/": {
-      "get": {
+    "/github/auth/exchange": {
+      "post": {
         "tags": [
-          "health"
+          "github"
         ],
-        "operationId": "health",
+        "operationId": "exchange_workflow_auth",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExchangeRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
-            "description": "Service is healthy"
+            "description": "Credential issued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExchangeResponse"
+                }
+              }
+            }
           },
-          "503": {
-            "description": "Service is draining or unhealthy"
+          "400": {
+            "description": "Bad request - malformed challenge or signature"
+          },
+          "401": {
+            "description": "Verification failed: signature, expired challenge, repo mismatch, or missing app install. Collapsed into one response so callers cannot probe which check failed"
+          },
+          "403": {
+            "description": "GitHub App install lacks actions: read permission - the repo owner must re-authorize the app"
+          },
+          "409": {
+            "description": "Artifact not yet visible via GitHub API - retry after a few seconds"
+          },
+          "500": {
+            "description": "Internal server error"
           }
+        }
+      }
+    },
+    "/github/auth/initiate": {
+      "post": {
+        "tags": [
+          "github"
+        ],
+        "operationId": "initiate_workflow_auth",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InitiateRequest"
+              }
+            }
+          },
+          "required": true
         },
-        "security": [
-          {}
-        ]
+        "responses": {
+          "200": {
+            "description": "Challenge issued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InitiateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - malformed repository or public key"
+          },
+          "409": {
+            "description": "Auth already initiated for this run attempt"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
       }
     },
     "/quote/": {
@@ -312,6 +585,51 @@
   },
   "components": {
     "schemas": {
+      "ApiKeyResponse": {
+        "type": "object",
+        "required": [
+          "key_id",
+          "key_prefix",
+          "display_name",
+          "permission",
+          "scope",
+          "owner_kind",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "$ref": "#/components/schemas/EpochSecs"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "expires_at": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EpochSecs"
+              }
+            ],
+            "nullable": true
+          },
+          "key_id": {
+            "type": "string",
+            "description": "Stable identifier for this key, used in delete and rotate\nrequests."
+          },
+          "key_prefix": {
+            "type": "string",
+            "description": "First eight characters of the secret, safe to display."
+          },
+          "owner_kind": {
+            "$ref": "#/components/schemas/PublicKeyOwnerKind"
+          },
+          "permission": {
+            "$ref": "#/components/schemas/PublicKeyPermission"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/PublicKeyScope"
+          }
+        }
+      },
       "BillingRepo": {
         "type": "object",
         "required": [
@@ -409,6 +727,85 @@
           }
         }
       },
+      "CreateApiKeyRequest": {
+        "type": "object",
+        "required": [
+          "display_name",
+          "permission",
+          "scope",
+          "owner_kind"
+        ],
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "description": "Human-readable label shown in the dashboard."
+          },
+          "expires_in_days": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of days until the key expires. Omit for no expiry.\nWhen present, must be in the range 1..=3650.",
+            "nullable": true,
+            "minimum": 0
+          },
+          "owner_kind": {
+            "$ref": "#/components/schemas/PublicKeyOwnerKind"
+          },
+          "permission": {
+            "$ref": "#/components/schemas/PublicKeyPermission"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/PublicKeyScope"
+          }
+        }
+      },
+      "CreatedApiKeyResponse": {
+        "type": "object",
+        "required": [
+          "key_id",
+          "key_prefix",
+          "display_name",
+          "permission",
+          "scope",
+          "owner_kind",
+          "created_at",
+          "secret"
+        ],
+        "properties": {
+          "created_at": {
+            "$ref": "#/components/schemas/EpochSecs"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "expires_at": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EpochSecs"
+              }
+            ],
+            "nullable": true
+          },
+          "key_id": {
+            "type": "string"
+          },
+          "key_prefix": {
+            "type": "string"
+          },
+          "owner_kind": {
+            "$ref": "#/components/schemas/PublicKeyOwnerKind"
+          },
+          "permission": {
+            "$ref": "#/components/schemas/PublicKeyPermission"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/PublicKeyScope"
+          },
+          "secret": {
+            "type": "string",
+            "description": "The full secret. Returned once at creation/rotation only and\nnever recoverable afterwards."
+          }
+        }
+      },
       "Currency": {
         "type": "string",
         "enum": [
@@ -448,6 +845,101 @@
         "description": "Unix epoch seconds.",
         "minimum": 0
       },
+      "ExchangeRequest": {
+        "type": "object",
+        "required": [
+          "challenge",
+          "signature"
+        ],
+        "properties": {
+          "challenge": {
+            "type": "string",
+            "description": "The exact challenge value returned by `/initiate`."
+          },
+          "signature": {
+            "type": "string",
+            "description": "Base64url-encoded (no padding) ed25519 signature over\n`b\"testquorum-exchange-v1:\" || challenge_bytes`. Signed with\nthe private key whose public half was sent to `/initiate`."
+          }
+        }
+      },
+      "ExchangeResponse": {
+        "type": "object",
+        "required": [
+          "api_key",
+          "key_id",
+          "expires_at"
+        ],
+        "properties": {
+          "api_key": {
+            "type": "string",
+            "description": "Bearer token to send as `Authorization: Bearer <api_key>` on\nsubsequent requests. Shown once and never recoverable."
+          },
+          "expires_at": {
+            "$ref": "#/components/schemas/EpochSecs"
+          },
+          "key_id": {
+            "type": "string",
+            "description": "Stable identifier for the minted credential (for audit /\nfuture revocation surfaces)."
+          }
+        }
+      },
+      "InitiateRequest": {
+        "type": "object",
+        "required": [
+          "repository",
+          "workflow_run_id",
+          "run_attempt",
+          "public_key"
+        ],
+        "properties": {
+          "public_key": {
+            "type": "string",
+            "description": "Base64url-encoded (no padding) 32-byte ed25519 public key. The\nmatching private key never leaves the workflow runner and is\nused to sign the exchange request."
+          },
+          "repository": {
+            "type": "string",
+            "description": "`owner/repo`, exactly as `$GITHUB_REPOSITORY` reports in the\nworkflow."
+          },
+          "run_attempt": {
+            "type": "integer",
+            "format": "int32",
+            "description": "`$GITHUB_RUN_ATTEMPT` — increments on each manual re-run. The\npending challenge document is keyed on\n`(repository, workflow_run_id, run_attempt)` so re-runs and the\noriginal run never collide on the same in-flight handshake.",
+            "minimum": 0
+          },
+          "workflow_run_id": {
+            "type": "integer",
+            "format": "int64",
+            "description": "`$GITHUB_RUN_ID` — globally-unique identifier for the workflow\nrun.",
+            "minimum": 0
+          }
+        }
+      },
+      "InitiateResponse": {
+        "type": "object",
+        "required": [
+          "challenge",
+          "artifact_name",
+          "artifact_filename",
+          "expires_at"
+        ],
+        "properties": {
+          "artifact_filename": {
+            "type": "string",
+            "description": "The single file the artifact must contain. Its body must equal\nthe challenge value verbatim (no trailing whitespace)."
+          },
+          "artifact_name": {
+            "type": "string",
+            "description": "The artifact name the workflow must use when uploading."
+          },
+          "challenge": {
+            "type": "string",
+            "description": "Single-use challenge string the workflow must include in its\nuploaded artifact."
+          },
+          "expires_at": {
+            "$ref": "#/components/schemas/EpochSecs"
+          }
+        }
+      },
       "PortalRequest": {
         "type": "object",
         "required": [
@@ -468,6 +960,171 @@
           "portal_url": {
             "type": "string"
           }
+        }
+      },
+      "PublicKeyOwnerKind": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "account"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "repo_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "repo"
+                ]
+              },
+              "repo_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "repo_id",
+              "workflow_id",
+              "workflow_run_id",
+              "run_attempt",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "workflow"
+                ]
+              },
+              "repo_id": {
+                "type": "string"
+              },
+              "run_attempt": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "workflow_id": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "workflow_run_id": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          }
+        ],
+        "description": "Where a key is logically owned. `account` keys are managed under\nthe user's account settings; `repo` keys are managed under a\nspecific repository's settings; `workflow` keys are minted by the\nGitHub Actions auth flow and not user-manageable.",
+        "discriminator": {
+          "propertyName": "kind"
+        }
+      },
+      "PublicKeyPermission": {
+        "type": "string",
+        "description": "Permission level granted to a user-managed API key. Persistent keys\ncan only be `read` or `read_write`; `admin` is reserved for the\nOAuth-issued UI session.",
+        "enum": [
+          "read",
+          "read_write"
+        ]
+      },
+      "PublicKeyScope": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "all_repos"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Grants access to a specific non-empty list of repository ids.",
+            "required": [
+              "repo_ids",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "repos"
+                ]
+              },
+              "repo_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Grants access only to resources owned by a specific GitHub\nActions workflow run. Minted exclusively by\n`POST /github/auth/exchange`; rejected if supplied to the\nuser-managed key creation endpoint.",
+            "required": [
+              "repo_id",
+              "workflow_id",
+              "workflow_run_id",
+              "run_attempt",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "workflow"
+                ]
+              },
+              "repo_id": {
+                "type": "string"
+              },
+              "run_attempt": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "workflow_id": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "workflow_run_id": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          }
+        ],
+        "description": "The set of repositories an API key can act on.",
+        "discriminator": {
+          "propertyName": "kind"
         }
       },
       "QuoteResponse": {
@@ -575,6 +1232,18 @@
           "unit_amount_cents": {
             "type": "integer",
             "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "RotateApiKeyRequest": {
+        "type": "object",
+        "properties": {
+          "expires_in_days": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of days until the new secret expires. Omit for no\nexpiry. The new value replaces the old one — rotation does not\ninherit the previous expiry. Must be in the range 1..=3650 when\npresent.",
+            "nullable": true,
             "minimum": 0
           }
         }
