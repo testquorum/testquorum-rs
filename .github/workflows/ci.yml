@@ -40,5 +40,8 @@ jobs:
           arguments: .#ci
 
       - name: Build and test
-        run: nix run .
+        uses: testquorum/action@main
+        with:
+          version: ${{ github.sha }}
+          flake-ref: .#testquorum-runner
 
