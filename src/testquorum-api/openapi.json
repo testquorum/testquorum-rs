@@ -6,7 +6,7 @@
     "license": {
       "name": ""
     },
-    "version": "0.1.172"
+    "version": "0.1.174"
   },
   "paths": {
     "/auth/api-keys": {
@@ -513,9 +513,6 @@
           "400": {
             "description": "Bad request - malformed repository or public key"
           },
-          "409": {
-            "description": "Auth already initiated for this run attempt"
-          },
           "500": {
             "description": "Internal server error"
           }
@@ -903,7 +900,7 @@
           "run_attempt": {
             "type": "integer",
             "format": "int32",
-            "description": "`$GITHUB_RUN_ATTEMPT` — increments on each manual re-run. The\npending challenge document is keyed on\n`(repository, workflow_run_id, run_attempt)` so re-runs and the\noriginal run never collide on the same in-flight handshake.",
+            "description": "`$GITHUB_RUN_ATTEMPT` — increments on each manual re-run.",
             "minimum": 0
           },
           "workflow_run_id": {
