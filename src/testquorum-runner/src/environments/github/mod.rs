@@ -7,12 +7,18 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use ed25519_dalek::Signer;
 use ed25519_dalek::SigningKey;
+use git2::Oid;
 use rand::rngs::OsRng;
+use testquorum_api::types::Commit;
 use testquorum_api::types::ExchangeRequest;
 use testquorum_api::types::InitiateRequest;
+use testquorum_api::types::Run;
+use testquorum_api::types::RunKind;
 
 use super::Environment;
+use super::RunContext;
 use super::client;
+use super::git;
 
 const EXCHANGE_PREFIX: &[u8] = b"testquorum-exchange-v1:";
 
@@ -50,6 +56,155 @@ impl Environment for GitHubEnvironment {
         let api_key = run_handshake().await?;
         Ok(Some(client::with_bearer(&api_key)?))
     }
+
+    async fn run_context(&self) -> Result<Option<RunContext>, anyhow::Error> {
+        let repo_source_id = match std::env::var("GITHUB_REPOSITORY_ID") {
+            Ok(v) if !v.is_empty() => v,
+            _ => {
+                eprintln!("upload skipped: GITHUB_REPOSITORY_ID is not set");
+                return Ok(None);
+            }
+        };
+        let head_sha = match std::env::var("GITHUB_SHA") {
+            Ok(v) if !v.is_empty() => v,
+            _ => {
+                eprintln!("upload skipped: GITHUB_SHA is not set");
+                return Ok(None);
+            }
+        };
+        let event_name = std::env::var("GITHUB_EVENT_NAME").unwrap_or_default();
+        let base_ref = std::env::var("GITHUB_BASE_REF").unwrap_or_default();
+
+        // All git2 work happens off the async runtime — libgit2 is blocking.
+        let run = tokio::task::spawn_blocking(move || build_run(&head_sha, &event_name, &base_ref))
+            .await
+            .map_err(|e| anyhow::anyhow!("git task panicked: {}", e))?;
+        let run = match run {
+            BuildRunOutcome::Ok(run) => run,
+            BuildRunOutcome::Skip(reason) => {
+                eprintln!("upload skipped: {}", reason);
+                return Ok(None);
+            }
+        };
+
+        Ok(Some(RunContext {
+            repo_id: format!("github:{}", repo_source_id),
+            run,
+        }))
+    }
+}
+
+enum BuildRunOutcome {
+    Ok(Run),
+    Skip(String),
+}
+
+fn build_run(head_sha: &str, event_name: &str, base_ref: &str) -> BuildRunOutcome {
+    let repo = match git::open() {
+        Ok(r) => r,
+        Err(e) => return BuildRunOutcome::Skip(format!("could not open repo: {}", e.message())),
+    };
+
+    let head_oid = match git::resolve_oid(&repo, head_sha) {
+        Ok(o) => o,
+        Err(e) => {
+            return BuildRunOutcome::Skip(format!(
+                "head sha {} not present locally (shallow clone?): {}",
+                head_sha,
+                e.message()
+            ));
+        }
+    };
+    let head_height = match git::rev_count(&repo, head_oid) {
+        Ok(h) => h,
+        Err(e) => {
+            return BuildRunOutcome::Skip(format!(
+                "could not walk history from {}: {}",
+                head_sha,
+                e.message()
+            ));
+        }
+    };
+    let head = Commit {
+        sha: head_sha.to_string(),
+        height: head_height,
+    };
+
+    let (kind_ctor, base_oid): (fn(Commit) -> RunKind, Oid) = match event_name {
+        "pull_request" | "pull_request_target" => {
+            if base_ref.is_empty() {
+                return BuildRunOutcome::Skip(
+                    "GITHUB_BASE_REF is empty on a pull_request event".to_string(),
+                );
+            }
+            let target = format!("refs/remotes/origin/{}", base_ref);
+            let target_oid = match repo.refname_to_id(&target) {
+                Ok(o) => o,
+                Err(e) => {
+                    return BuildRunOutcome::Skip(format!(
+                        "could not resolve {} (fetch-depth too shallow?): {}",
+                        target,
+                        e.message()
+                    ));
+                }
+            };
+            let base = match git::merge_base(&repo, head_oid, target_oid) {
+                Ok(o) => o,
+                Err(e) => {
+                    return BuildRunOutcome::Skip(format!(
+                        "could not compute merge-base: {}",
+                        e.message()
+                    ));
+                }
+            };
+            (RunKind::Diff, base)
+        }
+        "push" => {
+            let head_commit = match repo.find_commit(head_oid) {
+                Ok(c) => c,
+                Err(e) => {
+                    return BuildRunOutcome::Skip(format!(
+                        "could not load head commit: {}",
+                        e.message()
+                    ));
+                }
+            };
+            let parent = match head_commit.parent_id(0) {
+                Ok(o) => o,
+                Err(_) => {
+                    return BuildRunOutcome::Skip(
+                        "head commit has no first parent (root commit?)".to_string(),
+                    );
+                }
+            };
+            (RunKind::Merge, parent)
+        }
+        other => {
+            return BuildRunOutcome::Skip(format!(
+                "GITHUB_EVENT_NAME={} is not supported for upload",
+                other
+            ));
+        }
+    };
+
+    let base_height = match git::rev_count(&repo, base_oid) {
+        Ok(h) => h,
+        Err(e) => {
+            return BuildRunOutcome::Skip(format!(
+                "could not walk history from merge base: {}",
+                e.message()
+            ));
+        }
+    };
+    let merge_base = Commit {
+        sha: base_oid.to_string(),
+        height: base_height,
+    };
+
+    BuildRunOutcome::Ok(Run {
+        head,
+        kind: kind_ctor(merge_base),
+    })
 }
 
 async fn run_handshake() -> Result<String, anyhow::Error> {
