@@ -9,12 +9,14 @@ use crate::CargoManager;
 use crate::Environment;
 use crate::ManagerRegistry;
 use crate::NixManager;
+use crate::RunContext;
 use crate::Test;
 use crate::TestEvent;
 use crate::config::find_config_file;
 use crate::detect_cargo;
 use crate::detect_environment;
 use crate::detect_nix;
+use crate::uploader::Uploader;
 
 pub(crate) enum RunResult {
     Success,
@@ -44,11 +46,17 @@ pub(crate) async fn run_cli() -> Result<RunResult, anyhow::Error> {
     let registry = build_registry(&config)?;
 
     let env = detect_environment();
-    print_auth_banner(env.as_ref()).await;
 
     match cli.command {
-        Some(Commands::Discover) => discover_only(&registry).await,
-        Some(Commands::Run) | None => discover_and_run(&registry).await,
+        Some(Commands::Discover) => {
+            // Discovery doesn't upload — just identify the session.
+            print_auth_banner(env.as_ref()).await;
+            discover_only(&registry).await
+        }
+        Some(Commands::Run) | None => {
+            let upload = prepare_upload(env.as_ref()).await;
+            discover_and_run(&registry, upload).await
+        }
     }
 }
 
@@ -73,6 +81,50 @@ async fn print_auth_banner(env: &dyn Environment) {
             println!("auth failed (env: {}): {}", env.name(), e);
         }
     }
+}
+
+/// Resolves auth + run context for the run path, printing a single
+/// consolidated banner. Returns the spawned uploader when both pieces are
+/// available; otherwise prints the reason upload is disabled and returns
+/// `None`. Never returns an error: upload is best-effort.
+async fn prepare_upload(env: &dyn Environment) -> Option<Uploader> {
+    let client = match env.authenticated_client().await {
+        Ok(Some(c)) => c,
+        Ok(None) => {
+            println!("unauthenticated (env: {})", env.name());
+            println!("upload disabled: no authenticated client");
+            return None;
+        }
+        Err(e) => {
+            println!("auth failed (env: {}): {}", env.name(), e);
+            println!("upload disabled: authentication error");
+            return None;
+        }
+    };
+
+    match client.session_info().await {
+        Ok(resp) => println!(
+            "authed as {} (env: {})",
+            resp.into_inner().display_name,
+            env.name()
+        ),
+        Err(e) => println!("auth banner (env: {}): session lookup: {}", env.name(), e),
+    }
+
+    let ctx: RunContext = match env.run_context().await {
+        Ok(Some(c)) => c,
+        Ok(None) => {
+            println!("upload disabled: no run context for this invocation");
+            return None;
+        }
+        Err(e) => {
+            println!("upload disabled: run context error: {}", e);
+            return None;
+        }
+    };
+
+    println!("uploading test state to {}", ctx.repo_id);
+    Some(Uploader::spawn(client, ctx))
 }
 
 fn load_config() -> Result<testquorum_config::Config, anyhow::Error> {
@@ -159,7 +211,10 @@ async fn discover_only(registry: &ManagerRegistry) -> Result<RunResult, anyhow::
     }
 }
 
-async fn discover_and_run(registry: &ManagerRegistry) -> Result<RunResult, anyhow::Error> {
+async fn discover_and_run(
+    registry: &ManagerRegistry,
+    upload: Option<Uploader>,
+) -> Result<RunResult, anyhow::Error> {
     let mut had_errors = false;
     let mut total_passed = 0;
     let mut total_failed = 0;
@@ -178,7 +233,21 @@ async fn discover_and_run(registry: &ManagerRegistry) -> Result<RunResult, anyho
 
     if all_tests.is_empty() && !had_errors {
         println!("no tests found");
+        if let Some(u) = upload {
+            u.shutdown().await;
+        }
         return Ok(RunResult::Success);
+    }
+
+    // Synthesize a Discovered event per test so the uploader can mint the
+    // UUIDv7 it'll reuse for the rest of the lifecycle. We do this in the CLI
+    // layer so managers stay unmodified.
+    if let Some(u) = upload.as_ref() {
+        for test in &all_tests {
+            u.send(TestEvent::Discovered {
+                name: test.name.clone(),
+            });
+        }
     }
 
     // Phase 2: randomise order.
@@ -210,11 +279,18 @@ async fn discover_and_run(registry: &ManagerRegistry) -> Result<RunResult, anyho
         let mut stream = manager.run(tests).await;
         while let Some(event) = stream.next().await {
             match render_event(&event) {
-                Transition::Started => {}
+                Transition::Discovered | Transition::Started => {}
                 Transition::Passed => total_passed += 1,
                 Transition::Failed => total_failed += 1,
             }
+            if let Some(u) = upload.as_ref() {
+                u.send(event);
+            }
         }
+    }
+
+    if let Some(u) = upload {
+        u.shutdown().await;
     }
 
     println!("\n{} passed, {} failed", total_passed, total_failed);
@@ -229,6 +305,7 @@ async fn discover_and_run(registry: &ManagerRegistry) -> Result<RunResult, anyho
 }
 
 enum Transition {
+    Discovered,
     Started,
     Passed,
     Failed,
@@ -236,6 +313,7 @@ enum Transition {
 
 fn render_event(event: &TestEvent) -> Transition {
     match event {
+        TestEvent::Discovered { .. } => Transition::Discovered,
         TestEvent::Started { name } => {
             println!("  > {}", name);
             Transition::Started

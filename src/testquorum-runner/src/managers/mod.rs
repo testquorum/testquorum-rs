@@ -26,6 +26,7 @@ pub(crate) struct Test {
 
 #[derive(Debug, Clone)]
 pub(crate) enum TestEvent {
+    Discovered { name: String },
     Started { name: String },
     Finished { name: String, outcome: TestOutcome },
 }
