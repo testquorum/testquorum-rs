@@ -6,7 +6,7 @@
     "license": {
       "name": ""
     },
-    "version": "0.1.174"
+    "version": "0.1.194"
   },
   "paths": {
     "/auth/api-keys": {
@@ -229,6 +229,33 @@
         ]
       }
     },
+    "/auth/onboarding-seen": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "mark_onboarding_seen",
+        "responses": {
+          "200": {
+            "description": "Onboarding marked as seen"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing Bearer token"
+          },
+          "403": {
+            "description": "Forbidden - requires an administrator key"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/auth/session": {
       "get": {
         "tags": [
@@ -257,7 +284,7 @@
         ]
       }
     },
-    "/billing/": {
+    "/billing": {
       "get": {
         "tags": [
           "billing"
@@ -519,7 +546,7 @@
         }
       }
     },
-    "/quote/": {
+    "/quote": {
       "get": {
         "tags": [
           "quote"
@@ -545,7 +572,7 @@
         ]
       }
     },
-    "/repos/": {
+    "/repos": {
       "get": {
         "tags": [
           "repos"
@@ -577,6 +604,42 @@
             "bearer_auth": []
           }
         ]
+      }
+    },
+    "/schedule-call": {
+      "post": {
+        "tags": [
+          "schedule-call"
+        ],
+        "operationId": "schedule_call",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleCallRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Request submitted successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleCallResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or captcha failed"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        }
       }
     }
   },
@@ -1157,7 +1220,8 @@
           "full_name",
           "source",
           "source_id",
-          "state"
+          "state",
+          "trial_available"
         ],
         "properties": {
           "full_name": {
@@ -1173,6 +1237,10 @@
           },
           "state": {
             "$ref": "#/components/schemas/RepoState"
+          },
+          "trial_available": {
+            "type": "boolean",
+            "description": "True when this repository is eligible for the introductory free trial.\nOnce a trial has ever been started on the repo this becomes false and\nnever returns to true."
           }
         }
       },
@@ -1245,14 +1313,65 @@
           }
         }
       },
+      "ScheduleCallRequest": {
+        "type": "object",
+        "required": [
+          "first_name",
+          "last_name",
+          "email",
+          "turnstile_token"
+        ],
+        "properties": {
+          "company": {
+            "type": "string",
+            "nullable": true
+          },
+          "email": {
+            "type": "string"
+          },
+          "first_name": {
+            "type": "string"
+          },
+          "last_name": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string",
+            "nullable": true
+          },
+          "team_size": {
+            "type": "string",
+            "nullable": true
+          },
+          "turnstile_token": {
+            "type": "string"
+          }
+        }
+      },
+      "ScheduleCallResponse": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "SessionResponse": {
         "type": "object",
         "required": [
-          "display_name"
+          "display_name",
+          "onboarding_seen"
         ],
         "properties": {
           "display_name": {
             "type": "string"
+          },
+          "onboarding_seen": {
+            "type": "boolean",
+            "description": "Whether the user has completed the first-time onboarding flow."
           }
         }
       },
