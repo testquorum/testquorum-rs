@@ -6,7 +6,7 @@
     "license": {
       "name": ""
     },
-    "version": "0.1.194"
+    "version": "0.1.197"
   },
   "paths": {
     "/auth/api-keys": {
@@ -606,6 +606,73 @@
         ]
       }
     },
+    "/repos/{repo_id}/test-results": {
+      "post": {
+        "tags": [
+          "test-results"
+        ],
+        "operationId": "submit_test_results",
+        "parameters": [
+          {
+            "name": "repo_id",
+            "in": "path",
+            "description": "Repository identifier (e.g. `github:12345`)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitTestResultsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Test results recorded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmitTestResultsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - invalid repository id, non-v7 UUID, duplicate id in batch, or batch exceeds 1024 entries"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing Bearer token"
+          },
+          "402": {
+            "description": "Payment required - this repository does not have an active subscription"
+          },
+          "403": {
+            "description": "Forbidden - the API key has read-only permission or lacks scope for this repository"
+          },
+          "404": {
+            "description": "Repository not found"
+          },
+          "409": {
+            "description": "Conflict - an `id` already exists and the submitted state is not a forward progression from the stored one (e.g. Passed -> Failed at the terminal stage, or any backwards move). The body has `conflict_id` (the offending id) and `created` (ids written before the conflict, in submission order); ids after the conflict were not attempted."
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/schedule-call": {
       "post": {
         "tags": [
@@ -784,6 +851,24 @@
           "updated": {
             "type": "boolean",
             "nullable": true
+          }
+        }
+      },
+      "Commit": {
+        "type": "object",
+        "description": "A git commit identified by SHA and by its linear height in the\nsource repository. `height` is submitted by the client because\nthe server has no access to the repo graph; it lets analytics\nreason about distance between commits without walking history.",
+        "required": [
+          "sha",
+          "height"
+        ],
+        "properties": {
+          "height": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "sha": {
+            "type": "string"
           }
         }
       },
@@ -1313,6 +1398,87 @@
           }
         }
       },
+      "Run": {
+        "type": "object",
+        "description": "The CI run that produced a test result.",
+        "required": [
+          "head",
+          "kind"
+        ],
+        "properties": {
+          "head": {
+            "$ref": "#/components/schemas/Commit"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/RunKind"
+          }
+        }
+      },
+      "RunKind": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Pre-review check: `head` is the proposed branch tip,\n`merge_base` is where the branch diverged from its target.",
+            "required": [
+              "merge_base",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "diff"
+                ]
+              },
+              "merge_base": {
+                "$ref": "#/components/schemas/Commit"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Pre-land check: `head` is a candidate merge commit,\n`merge_base` is its first parent on the destination branch.",
+            "required": [
+              "merge_base",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "land"
+                ]
+              },
+              "merge_base": {
+                "$ref": "#/components/schemas/Commit"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Post-merge check: `head` is the new tip of the destination\nbranch, `merge_base` is its parent (the previous tip).",
+            "required": [
+              "merge_base",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "merge"
+                ]
+              },
+              "merge_base": {
+                "$ref": "#/components/schemas/Commit"
+              }
+            }
+          }
+        ],
+        "description": "What kind of run this is, together with the merge-base commit it\nis being compared against.",
+        "discriminator": {
+          "propertyName": "kind"
+        }
+      },
       "ScheduleCallRequest": {
         "type": "object",
         "required": [
@@ -1375,6 +1541,37 @@
           }
         }
       },
+      "SubmitTestResultsRequest": {
+        "type": "object",
+        "required": [
+          "results"
+        ],
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TestResultDoc"
+            },
+            "description": "Test instances to submit. Each entry must carry a UUIDv7 the\nclient mints once and reuses across lifecycle transitions\n(Discovered → Running → terminal). A resubmit of a known\n`id` lands iff the new state is a forward progression from\nthe stored one, or an idempotent re-submit of the same\nvariant; non-forward resubmits (e.g. Passed → Failed, or a\nbackwards move) are rejected with 409. At most 1024 entries\nper request."
+          }
+        }
+      },
+      "SubmitTestResultsResponse": {
+        "type": "object",
+        "required": [
+          "ids"
+        ],
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "UUIDs of the test instances that were created, in the order\nthey appeared in the request."
+          }
+        }
+      },
       "SubscriptionState": {
         "type": "string",
         "enum": [
@@ -1394,6 +1591,259 @@
           "unpaid",
           "paused"
         ]
+      },
+      "TestResultDoc": {
+        "type": "object",
+        "description": "A single test instance within a CI run.\n\nSubmitting the same `id` again replaces the existing record, so\nclients model the test lifecycle by emitting state transitions\nagainst a UUID they mint once when the test is first observed.",
+        "required": [
+          "id",
+          "test_name",
+          "run",
+          "state"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Stable identifier for this test instance. Must be a UUIDv7\n(RFC 9562 §5.7); other UUID versions are rejected."
+          },
+          "run": {
+            "$ref": "#/components/schemas/Run"
+          },
+          "state": {
+            "$ref": "#/components/schemas/TestState"
+          },
+          "test_name": {
+            "type": "string",
+            "description": "Fully-qualified test name as reported by the runner."
+          }
+        }
+      },
+      "TestState": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Registered by the runner; has not yet started.",
+            "required": [
+              "discovered_at",
+              "kind"
+            ],
+            "properties": {
+              "discovered_at": {
+                "$ref": "#/components/schemas/EpochSecs"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "discovered"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Currently executing.",
+            "required": [
+              "discovered_at",
+              "started_at",
+              "kind"
+            ],
+            "properties": {
+              "discovered_at": {
+                "$ref": "#/components/schemas/EpochSecs"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "running"
+                ]
+              },
+              "started_at": {
+                "$ref": "#/components/schemas/EpochSecs"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Completed successfully.",
+            "required": [
+              "discovered_at",
+              "started_at",
+              "finished_at",
+              "duration_ms",
+              "kind"
+            ],
+            "properties": {
+              "discovered_at": {
+                "$ref": "#/components/schemas/EpochSecs"
+              },
+              "duration_ms": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Millisecond-precise runtime; `started_at`/`finished_at`\nare seconds-resolution.",
+                "minimum": 0
+              },
+              "finished_at": {
+                "$ref": "#/components/schemas/EpochSecs"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "passed"
+                ]
+              },
+              "started_at": {
+                "$ref": "#/components/schemas/EpochSecs"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Ran and produced a negative result.",
+            "required": [
+              "discovered_at",
+              "started_at",
+              "finished_at",
+              "duration_ms",
+              "failure_message",
+              "stderr",
+              "kind"
+            ],
+            "properties": {
+              "discovered_at": {
+                "$ref": "#/components/schemas/EpochSecs"
+              },
+              "duration_ms": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "failure_message": {
+                "type": "string"
+              },
+              "finished_at": {
+                "$ref": "#/components/schemas/EpochSecs"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "failed"
+                ]
+              },
+              "started_at": {
+                "$ref": "#/components/schemas/EpochSecs"
+              },
+              "stderr": {
+                "type": "string"
+              },
+              "stdout": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Could not run to completion due to a problem outside the\ntest itself (panicked harness, missing fixture, runner\ncrash).",
+            "required": [
+              "discovered_at",
+              "finished_at",
+              "error_message",
+              "kind"
+            ],
+            "properties": {
+              "discovered_at": {
+                "$ref": "#/components/schemas/EpochSecs"
+              },
+              "error_message": {
+                "type": "string"
+              },
+              "finished_at": {
+                "$ref": "#/components/schemas/EpochSecs"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "errored"
+                ]
+              },
+              "started_at": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/EpochSecs"
+                  }
+                ],
+                "nullable": true
+              },
+              "stderr": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Skipped without running.",
+            "required": [
+              "discovered_at",
+              "finished_at",
+              "kind"
+            ],
+            "properties": {
+              "discovered_at": {
+                "$ref": "#/components/schemas/EpochSecs"
+              },
+              "finished_at": {
+                "$ref": "#/components/schemas/EpochSecs"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "skipped"
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Cancelled by the runner (e.g. job cancellation).",
+            "required": [
+              "discovered_at",
+              "finished_at",
+              "kind"
+            ],
+            "properties": {
+              "discovered_at": {
+                "$ref": "#/components/schemas/EpochSecs"
+              },
+              "finished_at": {
+                "$ref": "#/components/schemas/EpochSecs"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "cancelled"
+                ]
+              },
+              "started_at": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/EpochSecs"
+                  }
+                ],
+                "nullable": true
+              }
+            }
+          }
+        ],
+        "description": "Lifecycle state of a test instance. Each variant carries every\ntimestamp the test has reached, so transitions never lose\ninformation when the doc is overwritten on resubmit.",
+        "discriminator": {
+          "propertyName": "kind"
+        }
       },
       "Tier": {
         "type": "string",
