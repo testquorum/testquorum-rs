@@ -161,7 +161,7 @@ fn build_registry(config: &testquorum_config::Config) -> Result<ManagerRegistry,
         .map(|n| n.attrset.clone())
         .unwrap_or_else(|| "checks".to_string());
 
-    if config.managers.autodetect && nix_enabled {
+    if config.managers.autodetect && nix_enabled && std::path::Path::new("flake.nix").exists() {
         match detect_nix() {
             Ok(()) => registry.register(Box::new(NixManager::new(nix_attrset))),
             Err(e) => eprintln!("warning: nix detection failed: {}", e),
