@@ -1,6 +1,6 @@
 use super::CargoError;
 
-pub(crate) fn detect_cargo() -> Result<(), CargoError> {
+pub(crate) fn detect_cargo(manifest_path: Option<&str>) -> Result<String, CargoError> {
     let cargo_path = which::which("cargo").map_err(|_| CargoError::CargoNotFound)?;
 
     let output = std::process::Command::new(&cargo_path)
@@ -22,7 +22,14 @@ pub(crate) fn detect_cargo() -> Result<(), CargoError> {
         });
     }
 
-    Ok(())
+    let resolved = manifest_path.unwrap_or("Cargo.toml");
+    if manifest_path.is_none() && !std::path::Path::new(resolved).exists() {
+        return Err(CargoError::ManifestNotFound {
+            path: resolved.to_string(),
+        });
+    }
+
+    Ok(resolved.to_string())
 }
 
 fn parse_version(output: &str) -> Option<(u32, u32)> {

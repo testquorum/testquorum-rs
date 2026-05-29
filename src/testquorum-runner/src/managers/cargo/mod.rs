@@ -68,11 +68,13 @@ struct ArtifactProfile {
     test: bool,
 }
 
-pub(crate) struct CargoManager;
+pub(crate) struct CargoManager {
+    manifest_path: String,
+}
 
 impl CargoManager {
-    pub(crate) fn new() -> Self {
-        Self
+    pub(crate) fn new(manifest_path: String) -> Self {
+        Self { manifest_path }
     }
 }
 
@@ -83,7 +85,7 @@ impl TestManager for CargoManager {
     }
 
     async fn discover(&self) -> Result<Vec<Test>, anyhow::Error> {
-        let metadata = discover_metadata().await?;
+        let metadata = discover_metadata(&self.manifest_path).await?;
 
         let workspace_packages: HashMap<String, MetadataPackage> = metadata
             .packages
@@ -91,7 +93,7 @@ impl TestManager for CargoManager {
             .map(|p| (p.id.clone(), p))
             .collect();
 
-        let artifacts = compile_test_binaries().await?;
+        let artifacts = compile_test_binaries(&self.manifest_path).await?;
 
         let mut tests = Vec::new();
 
@@ -142,6 +144,7 @@ impl TestManager for CargoManager {
 
     async fn run(&self, tests: Vec<Test>) -> Pin<Box<dyn Stream<Item = TestEvent> + Send>> {
         let (tx, rx) = mpsc::channel::<TestEvent>(1);
+        let manifest_path = self.manifest_path.clone();
 
         tokio::spawn(async move {
             // Group by package so each package runs in its own sequential
@@ -161,6 +164,7 @@ impl TestManager for CargoManager {
             let mut handles = Vec::new();
             for (_pkg, tests) in by_package {
                 let tx = tx.clone();
+                let manifest_path = manifest_path.clone();
                 handles.push(tokio::spawn(async move {
                     for test in tests {
                         if tx
@@ -175,7 +179,7 @@ impl TestManager for CargoManager {
 
                         let outcome = match serde_json::from_value::<CargoTestPayload>(test.payload)
                         {
-                            Ok(payload) => run_one(&payload).await,
+                            Ok(payload) => run_one(&payload, &manifest_path).await,
                             Err(e) => TestOutcome {
                                 passed: false,
                                 duration_ms: 0,
@@ -206,9 +210,16 @@ impl TestManager for CargoManager {
     }
 }
 
-async fn discover_metadata() -> Result<CargoMetadata, CargoError> {
+async fn discover_metadata(manifest_path: &str) -> Result<CargoMetadata, CargoError> {
     let output = Command::new("cargo")
-        .args(["metadata", "--no-deps", "--format-version", "1"])
+        .args([
+            "metadata",
+            "--no-deps",
+            "--format-version",
+            "1",
+            "--manifest-path",
+            manifest_path,
+        ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -227,9 +238,15 @@ async fn discover_metadata() -> Result<CargoMetadata, CargoError> {
     })
 }
 
-async fn compile_test_binaries() -> Result<Vec<CompilerArtifact>, CargoError> {
+async fn compile_test_binaries(manifest_path: &str) -> Result<Vec<CompilerArtifact>, CargoError> {
     let output = Command::new("cargo")
-        .args(["test", "--no-run", "--message-format=json"])
+        .args([
+            "test",
+            "--no-run",
+            "--message-format=json",
+            "--manifest-path",
+            manifest_path,
+        ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -283,11 +300,11 @@ async fn list_tests_in_binary(exe: &str) -> Result<Vec<String>, CargoError> {
     Ok(tests)
 }
 
-async fn run_one(payload: &CargoTestPayload) -> TestOutcome {
+async fn run_one(payload: &CargoTestPayload, manifest_path: &str) -> TestOutcome {
     let start = Instant::now();
     let (passed, stderr) = match payload.kind {
-        TestKind::Unit => run_unit_test(&payload.package, &payload.test_name).await,
-        TestKind::Doctests => run_doctests(&payload.package).await,
+        TestKind::Unit => run_unit_test(&payload.package, &payload.test_name, manifest_path).await,
+        TestKind::Doctests => run_doctests(&payload.package, manifest_path).await,
     };
     TestOutcome {
         passed,
@@ -296,10 +313,12 @@ async fn run_one(payload: &CargoTestPayload) -> TestOutcome {
     }
 }
 
-async fn run_unit_test(package: &str, test_name: &str) -> (bool, String) {
+async fn run_unit_test(package: &str, test_name: &str, manifest_path: &str) -> (bool, String) {
     let output = Command::new("cargo")
         .args([
             "test",
+            "--manifest-path",
+            manifest_path,
             "-p",
             package,
             "--",
@@ -328,9 +347,16 @@ async fn run_unit_test(package: &str, test_name: &str) -> (bool, String) {
     }
 }
 
-async fn run_doctests(package: &str) -> (bool, String) {
+async fn run_doctests(package: &str, manifest_path: &str) -> (bool, String) {
     let output = Command::new("cargo")
-        .args(["test", "--doc", "-p", package])
+        .args([
+            "test",
+            "--manifest-path",
+            manifest_path,
+            "--doc",
+            "-p",
+            package,
+        ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()

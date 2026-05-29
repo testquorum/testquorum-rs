@@ -10,4 +10,6 @@ pub(crate) enum CargoError {
     MetadataFailed { stderr: String },
     #[error("cargo test --no-run failed: {stderr}")]
     CompilationFailed { stderr: String },
+    #[error("cargo manifest not found at {path}")]
+    ManifestNotFound { path: String },
 }

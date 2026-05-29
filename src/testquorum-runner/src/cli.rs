@@ -175,8 +175,10 @@ fn build_registry(config: &testquorum_config::Config) -> Result<ManagerRegistry,
     let cargo_enabled = cargo_config.map(|c| c.enabled).unwrap_or(true);
 
     if config.managers.autodetect && cargo_enabled {
-        match detect_cargo() {
-            Ok(()) => registry.register(Box::new(CargoManager::new())),
+        match detect_cargo(cargo_config.and_then(|c| c.manifest_path.as_deref())) {
+            Ok(manifest_path) => {
+                registry.register(Box::new(CargoManager::new(manifest_path)));
+            }
             Err(e) => eprintln!("warning: cargo detection failed: {}", e),
         }
     }
