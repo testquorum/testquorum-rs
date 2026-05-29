@@ -12,6 +12,7 @@ pub struct Managers {
     pub autodetect: bool,
     pub nix: Option<NixConfig>,
     pub cargo: Option<CargoConfig>,
+    pub treefmt: Option<TreefmtConfig>,
 }
 
 fn default_managers() -> Managers {
@@ -19,6 +20,7 @@ fn default_managers() -> Managers {
         autodetect: true,
         nix: None,
         cargo: None,
+        treefmt: None,
     }
 }
 
@@ -42,6 +44,14 @@ fn default_true() -> bool {
 
 fn default_attrset() -> String {
     "checks".to_string()
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct TreefmtConfig {
+    /// `None` (default) means auto-detect: run only if a treefmt config file exists.
+    /// `Some(true)` means always run.
+    /// `Some(false)` means disabled.
+    pub enabled: Option<bool>,
 }
 
 pub fn from_str(s: &str) -> Result<Config, toml::de::Error> {
@@ -173,6 +183,52 @@ autodetect = true
     }
 
     #[test]
+    fn test_treefmt_config_enabled() {
+        let toml = r#"
+[managers]
+autodetect = true
+
+[managers.treefmt]
+enabled = true
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(
+            config.managers.treefmt,
+            Some(TreefmtConfig {
+                enabled: Some(true)
+            })
+        );
+    }
+
+    #[test]
+    fn test_treefmt_config_disabled() {
+        let toml = r#"
+[managers]
+autodetect = true
+
+[managers.treefmt]
+enabled = false
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(
+            config.managers.treefmt,
+            Some(TreefmtConfig {
+                enabled: Some(false)
+            })
+        );
+    }
+
+    #[test]
+    fn test_treefmt_default_when_omitted() {
+        let toml = r#"
+[managers]
+autodetect = true
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(config.managers.treefmt, None);
+    }
+
+    #[test]
     fn test_invalid_toml() {
         let result = from_str("not valid toml {{{");
         assert!(result.is_err());
@@ -188,6 +244,7 @@ autodetect = true
                     attrset: "checks".to_string(),
                 }),
                 cargo: None,
+                treefmt: None,
             },
         };
         let toml = r#"
