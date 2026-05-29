@@ -18,8 +18,10 @@ pub(crate) use managers::Test;
 pub(crate) use managers::TestEvent;
 pub(crate) use managers::TestManager;
 pub(crate) use managers::TestOutcome;
+pub(crate) use managers::TreefmtManager;
 pub(crate) use managers::detect_cargo;
 pub(crate) use managers::detect_nix;
+pub(crate) use managers::detect_treefmt;
 pub(crate) use registry::ManagerRegistry;
 
 #[tokio::main]

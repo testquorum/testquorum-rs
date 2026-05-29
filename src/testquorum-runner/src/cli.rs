@@ -12,10 +12,12 @@ use crate::NixManager;
 use crate::RunContext;
 use crate::Test;
 use crate::TestEvent;
+use crate::TreefmtManager;
 use crate::config::find_config_file;
 use crate::detect_cargo;
 use crate::detect_environment;
 use crate::detect_nix;
+use crate::detect_treefmt;
 use crate::uploader::Uploader;
 
 pub(crate) enum RunResult {
@@ -148,6 +150,7 @@ fn default_config() -> testquorum_config::Config {
             autodetect: true,
             nix: None,
             cargo: None,
+            treefmt: None,
         },
     }
 }
@@ -175,6 +178,16 @@ fn build_registry(config: &testquorum_config::Config) -> Result<ManagerRegistry,
         match detect_cargo() {
             Ok(()) => registry.register(Box::new(CargoManager::new())),
             Err(e) => eprintln!("warning: cargo detection failed: {}", e),
+        }
+    }
+
+    let treefmt_config = config.managers.treefmt.as_ref();
+    let treefmt_enabled = treefmt_config.map(|c| c.enabled).unwrap_or(None);
+
+    if config.managers.autodetect && treefmt_enabled != Some(false) {
+        match detect_treefmt() {
+            Ok(()) => registry.register(Box::new(TreefmtManager::new(treefmt_enabled))),
+            Err(e) => eprintln!("warning: treefmt detection failed: {}", e),
         }
     }
 
