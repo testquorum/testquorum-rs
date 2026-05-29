@@ -36,6 +36,8 @@ pub struct NixConfig {
 pub struct CargoConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
+    #[serde(default)]
+    pub manifest_path: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -169,7 +171,33 @@ autodetect = true
 enabled = true
 "#;
         let config = from_str(toml).unwrap();
-        assert_eq!(config.managers.cargo, Some(CargoConfig { enabled: true }));
+        assert_eq!(
+            config.managers.cargo,
+            Some(CargoConfig {
+                enabled: true,
+                manifest_path: None,
+            })
+        );
+    }
+
+    #[test]
+    fn test_cargo_manifest_path() {
+        let toml = r#"
+[managers]
+autodetect = true
+
+[managers.cargo]
+enabled = true
+manifest_path = "subdir/Cargo.toml"
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(
+            config.managers.cargo,
+            Some(CargoConfig {
+                enabled: true,
+                manifest_path: Some("subdir/Cargo.toml".to_string()),
+            })
+        );
     }
 
     #[test]
