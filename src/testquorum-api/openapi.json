@@ -6,7 +6,7 @@
     "license": {
       "name": ""
     },
-    "version": "0.1.197"
+    "version": "0.1.203"
   },
   "paths": {
     "/auth/api-keys": {
@@ -352,7 +352,7 @@
             "description": "Unauthorized"
           },
           "403": {
-            "description": "Forbidden - not the owner, or billing actions require an administrator key"
+            "description": "Forbidden - billing actions require an administrator key"
           },
           "404": {
             "description": "Repository or subscription not found"
@@ -645,7 +645,7 @@
             }
           },
           "400": {
-            "description": "Bad request - invalid repository id, non-v7 UUID, duplicate id in batch, or batch exceeds 1024 entries"
+            "description": "Bad request - invalid repository id, non-v7 UUID, or batch exceeds 1024 entries"
           },
           "401": {
             "description": "Unauthorized - invalid or missing Bearer token"
@@ -654,13 +654,16 @@
             "description": "Payment required - this repository does not have an active subscription"
           },
           "403": {
-            "description": "Forbidden - the API key has read-only permission or lacks scope for this repository"
+            "description": "Forbidden"
           },
           "404": {
             "description": "Repository not found"
           },
           "409": {
             "description": "Conflict - an `id` already exists and the submitted state is not a forward progression from the stored one (e.g. Passed -> Failed at the terminal stage, or any backwards move). The body has `conflict_id` (the offending id) and `created` (ids written before the conflict, in submission order); ids after the conflict were not attempted."
+          },
+          "429": {
+            "description": "Rate limit exceeded; try again after `Retry-After` seconds"
           },
           "500": {
             "description": "Internal server error"
@@ -1552,7 +1555,7 @@
             "items": {
               "$ref": "#/components/schemas/TestResultDoc"
             },
-            "description": "Test instances to submit. Each entry must carry a UUIDv7 the\nclient mints once and reuses across lifecycle transitions\n(Discovered → Running → terminal). A resubmit of a known\n`id` lands iff the new state is a forward progression from\nthe stored one, or an idempotent re-submit of the same\nvariant; non-forward resubmits (e.g. Passed → Failed, or a\nbackwards move) are rejected with 409. At most 1024 entries\nper request."
+            "description": "Test instances to submit. Each entry must carry a UUIDv7 the\nclient mints once and reuses across lifecycle transitions\n(Discovered → Running → terminal). A resubmit of a known\n`id` lands iff the new state is a forward progression from\nthe stored one, or an idempotent re-submit of the same\nvariant; non-forward resubmits (e.g. Passed → Failed, or a\nbackwards move) are rejected with 409. The same rule applies\nto multiple entries for the same `id` within a single batch.\nAt most 1024 entries per request."
           }
         }
       },
