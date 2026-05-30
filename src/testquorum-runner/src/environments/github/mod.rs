@@ -74,11 +74,14 @@ impl Environment for GitHubEnvironment {
         };
         let event_name = std::env::var("GITHUB_EVENT_NAME").unwrap_or_default();
         let base_ref = std::env::var("GITHUB_BASE_REF").unwrap_or_default();
+        let event_path = std::env::var("GITHUB_EVENT_PATH").unwrap_or_default();
 
         // All git2 work happens off the async runtime — libgit2 is blocking.
-        let run = tokio::task::spawn_blocking(move || build_run(&head_sha, &event_name, &base_ref))
-            .await
-            .map_err(|e| anyhow::anyhow!("git task panicked: {}", e))?;
+        let run = tokio::task::spawn_blocking(move || {
+            build_run(&head_sha, &event_name, &base_ref, &event_path)
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("git task panicked: {}", e))?;
         let run = match run {
             BuildRunOutcome::Ok(run) => run,
             BuildRunOutcome::Skip(reason) => {
@@ -99,7 +102,24 @@ enum BuildRunOutcome {
     Skip(String),
 }
 
-fn build_run(head_sha: &str, event_name: &str, base_ref: &str) -> BuildRunOutcome {
+/// Minimal typed view of the `merge_group` event payload. GitHub sends many
+/// more fields; serde silently drops what we don't ask for.
+#[derive(serde::Deserialize)]
+struct MergeGroupEvent {
+    merge_group: MergeGroupPayload,
+}
+
+#[derive(serde::Deserialize)]
+struct MergeGroupPayload {
+    base_sha: String,
+}
+
+fn build_run(
+    head_sha: &str,
+    event_name: &str,
+    base_ref: &str,
+    event_path: &str,
+) -> BuildRunOutcome {
     let repo = match git::open() {
         Ok(r) => r,
         Err(e) => return BuildRunOutcome::Skip(format!("could not open repo: {}", e.message())),
@@ -178,6 +198,49 @@ fn build_run(head_sha: &str, event_name: &str, base_ref: &str) -> BuildRunOutcom
                 }
             };
             (RunKind::Merge, parent)
+        }
+        // merge_group.base_sha is "the SHA of the merge group's parent
+        // commit" — the destination tip when this group is first in the
+        // queue, otherwise the previous group's tip. Either way it's the
+        // right merge_base for Land (the commit this batch was built on).
+        // The queue head's git first-parent isn't a substitute: under the
+        // rebase strategy a multi-commit batch's first parent is inside
+        // the batch, not at the group boundary.
+        "merge_group" => {
+            if event_path.is_empty() {
+                return BuildRunOutcome::Skip(
+                    "GITHUB_EVENT_PATH is not set on a merge_group event".to_string(),
+                );
+            }
+            let payload = match std::fs::read_to_string(event_path) {
+                Ok(s) => s,
+                Err(e) => {
+                    return BuildRunOutcome::Skip(format!(
+                        "could not read GITHUB_EVENT_PATH: {}",
+                        e
+                    ));
+                }
+            };
+            let event: MergeGroupEvent = match serde_json::from_str(&payload) {
+                Ok(v) => v,
+                Err(e) => {
+                    return BuildRunOutcome::Skip(format!(
+                        "could not parse merge_group event payload: {}",
+                        e
+                    ));
+                }
+            };
+            let base = match git::resolve_oid(&repo, &event.merge_group.base_sha) {
+                Ok(o) => o,
+                Err(e) => {
+                    return BuildRunOutcome::Skip(format!(
+                        "merge_group base sha {} not present locally (shallow clone?): {}",
+                        event.merge_group.base_sha,
+                        e.message()
+                    ));
+                }
+            };
+            (RunKind::Land, base)
         }
         other => {
             return BuildRunOutcome::Skip(format!(

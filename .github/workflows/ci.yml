@@ -4,6 +4,7 @@ on:
   push:
   pull_request:
     branches: [ main ]
+  merge_group:
 
 jobs:
   nix:
@@ -46,4 +47,5 @@ jobs:
         with:
           version: ${{ github.sha }}
           flake-ref: .#testquorum-runner
+          token: ${{ secrets.TESTQUORUM_AUTH_TOKEN }}
 
