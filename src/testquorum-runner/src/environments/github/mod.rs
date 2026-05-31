@@ -8,7 +8,6 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use ed25519_dalek::Signer;
 use ed25519_dalek::SigningKey;
 use git2::Oid;
-use rand::rngs::OsRng;
 use testquorum_api::types::Commit;
 use testquorum_api::types::ExchangeRequest;
 use testquorum_api::types::InitiateRequest;
@@ -281,7 +280,7 @@ async fn run_handshake() -> Result<String, anyhow::Error> {
     let runtime_token = require_env("ACTIONS_RUNTIME_TOKEN")?;
     let results_url = require_env("ACTIONS_RESULTS_URL")?;
 
-    let signing_key = SigningKey::generate(&mut OsRng);
+    let signing_key = SigningKey::from_bytes(&rand::random());
     let public_key_b64 = URL_SAFE_NO_PAD.encode(signing_key.verifying_key().to_bytes());
 
     let api = client::unauthenticated();
@@ -359,7 +358,7 @@ mod tests {
 
     #[test]
     fn signature_has_expected_length() {
-        let key = SigningKey::generate(&mut OsRng);
+        let key = SigningKey::from_bytes(&rand::random());
         let mut payload = EXCHANGE_PREFIX.to_vec();
         payload.extend_from_slice(b"some-challenge-value");
         let sig = key.sign(&payload);
@@ -369,7 +368,7 @@ mod tests {
     #[test]
     fn public_key_encodes_to_43_chars_base64url() {
         // 32 bytes → 43 chars in base64url-no-pad.
-        let key = SigningKey::generate(&mut OsRng);
+        let key = SigningKey::from_bytes(&rand::random());
         let encoded = URL_SAFE_NO_PAD.encode(key.verifying_key().to_bytes());
         assert_eq!(encoded.len(), 43);
         assert!(!encoded.contains('='));
