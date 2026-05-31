@@ -266,7 +266,7 @@ async fn discover_and_run(
     }
 
     // Phase 2: randomise order.
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     all_tests.shuffle(&mut rng);
 
     // Phase 3: group by manager so each manager receives only its own tests.
