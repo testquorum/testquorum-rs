@@ -294,10 +294,12 @@ mod tests {
                 sha: "aaaa".to_string(),
                 height: 10,
             },
-            kind: RunKind::Diff(Commit {
-                sha: "bbbb".to_string(),
-                height: 5,
-            }),
+            kind: RunKind::Diff {
+                merge_base: Commit {
+                    sha: "bbbb".to_string(),
+                    height: 5,
+                },
+            },
         }
     }
 

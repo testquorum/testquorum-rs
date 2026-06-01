@@ -61,9 +61,9 @@ fn build_context(repo_id: String) -> Result<RunContext, anyhow::Error> {
         height: require_i64("TQ_MERGE_BASE_HEIGHT")?,
     };
     let kind = match kind_str.as_str() {
-        "diff" => RunKind::Diff(merge_base),
-        "land" => RunKind::Land(merge_base),
-        "merge" => RunKind::Merge(merge_base),
+        "diff" => RunKind::Diff { merge_base },
+        "land" => RunKind::Land { merge_base },
+        "merge" => RunKind::Merge { merge_base },
         other => {
             anyhow::bail!(
                 "TQ_RUN_KIND must be one of diff|land|merge, got {:?}",
@@ -151,9 +151,9 @@ mod tests {
                 assert_eq!(ctx.run.head.sha, "aaaa");
                 assert_eq!(ctx.run.head.height, 42);
                 match ctx.run.kind {
-                    RunKind::Diff(base) => {
-                        assert_eq!(base.sha, "bbbb");
-                        assert_eq!(base.height, 40);
+                    RunKind::Diff { merge_base } => {
+                        assert_eq!(merge_base.sha, "bbbb");
+                        assert_eq!(merge_base.height, 40);
                     }
                     _ => panic!("expected Diff"),
                 }
