@@ -6,7 +6,7 @@
     "license": {
       "name": ""
     },
-    "version": "0.1.219"
+    "version": "0.1.226"
   },
   "paths": {
     "/auth/api-keys": {
@@ -1618,6 +1618,11 @@
           "paused"
         ]
       },
+      "TestManager": {
+        "type": "string",
+        "description": "The test manager that produced a result. One of `cargo`, `nix`, `treefmt`, or `custom:<name>` for an in-house runner.",
+        "example": "cargo"
+      },
       "TestResultDoc": {
         "type": "object",
         "description": "A single test instance within a CI run.\n\nSubmitting the same `id` again replaces the existing record, so\nclients model the test lifecycle by emitting state transitions\nagainst a UUID they mint once when the test is first observed.",
@@ -1638,6 +1643,14 @@
           },
           "state": {
             "$ref": "#/components/schemas/TestState"
+          },
+          "test_manager": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TestManager"
+              }
+            ],
+            "nullable": true
           },
           "test_name": {
             "type": "string",
