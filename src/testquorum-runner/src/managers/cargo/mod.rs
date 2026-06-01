@@ -170,6 +170,7 @@ impl TestManager for CargoManager {
                         if tx
                             .send(TestEvent::Started {
                                 name: test.name.clone(),
+                                manager: MANAGER_NAME.to_string(),
                             })
                             .await
                             .is_err()
@@ -190,6 +191,7 @@ impl TestManager for CargoManager {
                         if tx
                             .send(TestEvent::Finished {
                                 name: test.name,
+                                manager: MANAGER_NAME.to_string(),
                                 outcome,
                             })
                             .await

@@ -29,9 +29,19 @@ pub(crate) struct Test {
 
 #[derive(Debug, Clone)]
 pub(crate) enum TestEvent {
-    Discovered { name: String },
-    Started { name: String },
-    Finished { name: String, outcome: TestOutcome },
+    Discovered {
+        name: String,
+        manager: String,
+    },
+    Started {
+        name: String,
+        manager: String,
+    },
+    Finished {
+        name: String,
+        manager: String,
+        outcome: TestOutcome,
+    },
 }
 
 #[derive(Debug, Clone)]
