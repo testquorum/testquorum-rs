@@ -149,7 +149,13 @@ fn build_run(
         height: head_height,
     };
 
-    let (kind_ctor, base_oid): (fn(Commit) -> RunKind, Oid) = match event_name {
+    enum KindTag {
+        Diff,
+        Land,
+        Merge,
+    }
+
+    let (tag, base_oid): (KindTag, Oid) = match event_name {
         "pull_request" | "pull_request_target" => {
             if base_ref.is_empty() {
                 return BuildRunOutcome::Skip(
@@ -176,7 +182,7 @@ fn build_run(
                     ));
                 }
             };
-            (RunKind::Diff, base)
+            (KindTag::Diff, base)
         }
         "push" => {
             let head_commit = match repo.find_commit(head_oid) {
@@ -196,7 +202,7 @@ fn build_run(
                     );
                 }
             };
-            (RunKind::Merge, parent)
+            (KindTag::Merge, parent)
         }
         // merge_group.base_sha is "the SHA of the merge group's parent
         // commit" — the destination tip when this group is first in the
@@ -239,7 +245,7 @@ fn build_run(
                     ));
                 }
             };
-            (RunKind::Land, base)
+            (KindTag::Land, base)
         }
         other => {
             return BuildRunOutcome::Skip(format!(
@@ -263,10 +269,13 @@ fn build_run(
         height: base_height,
     };
 
-    BuildRunOutcome::Ok(Run {
-        head,
-        kind: kind_ctor(merge_base),
-    })
+    let kind = match tag {
+        KindTag::Diff => RunKind::Diff { merge_base },
+        KindTag::Land => RunKind::Land { merge_base },
+        KindTag::Merge => RunKind::Merge { merge_base },
+    };
+
+    BuildRunOutcome::Ok(Run { head, kind })
 }
 
 async fn run_handshake() -> Result<String, anyhow::Error> {

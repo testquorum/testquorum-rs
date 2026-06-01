@@ -6,7 +6,7 @@
     "license": {
       "name": ""
     },
-    "version": "0.1.203"
+    "version": "0.1.219"
   },
   "paths": {
     "/auth/api-keys": {
@@ -1459,7 +1459,7 @@
           },
           {
             "type": "object",
-            "description": "Post-merge check: `head` is the new tip of the destination\nbranch, `merge_base` is its parent (the previous tip).",
+            "description": "Deprecated: use `PostLand` instead. Post-merge check: `head` is the\nnew tip of the destination branch, `merge_base` is its parent (the\nprevious tip). This variant is retained for backward compatibility but\nwill be removed in a future release.",
             "required": [
               "merge_base",
               "kind"
@@ -1473,6 +1473,29 @@
               },
               "merge_base": {
                 "$ref": "#/components/schemas/Commit"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Post-land check: `head` is the tip of the branch at the time the job\nran, `branch` is the branch name, and `trigger` is the reason it ran.",
+            "required": [
+              "branch",
+              "trigger",
+              "kind"
+            ],
+            "properties": {
+              "branch": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "post_land"
+                ]
+              },
+              "trigger": {
+                "$ref": "#/components/schemas/Trigger"
               }
             }
           }
@@ -1870,6 +1893,15 @@
             "$ref": "#/components/schemas/CurrencyPrices"
           }
         }
+      },
+      "Trigger": {
+        "type": "string",
+        "description": "What triggered a post-land check.",
+        "enum": [
+          "push",
+          "scheduled",
+          "manual"
+        ]
       }
     },
     "securitySchemes": {
