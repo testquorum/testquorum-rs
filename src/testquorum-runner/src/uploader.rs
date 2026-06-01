@@ -16,6 +16,7 @@ use testquorum_api::Client;
 use testquorum_api::types::EpochSecs;
 use testquorum_api::types::Run;
 use testquorum_api::types::SubmitTestResultsRequest;
+use testquorum_api::types::TestManager;
 use testquorum_api::types::TestResultDoc;
 use testquorum_api::types::TestState;
 use tokio::sync::mpsc;
@@ -198,20 +199,21 @@ fn build_doc(
 ) -> Option<TestResultDoc> {
     let now = SystemTime::now();
     match event {
-        TestEvent::Discovered { name } => {
+        TestEvent::Discovered { name, manager } => {
             let inst = instances
                 .entry(name.clone())
                 .or_insert_with(|| new_instance(now));
             Some(TestResultDoc {
                 id: inst.id,
                 test_name: name.clone(),
+                test_manager: Some(TestManager(manager.clone())),
                 run: run.clone(),
                 state: TestState::Discovered {
                     discovered_at: inst.discovered_at.clone(),
                 },
             })
         }
-        TestEvent::Started { name } => {
+        TestEvent::Started { name, manager } => {
             let inst = instances
                 .entry(name.clone())
                 .or_insert_with(|| new_instance(now));
@@ -219,6 +221,7 @@ fn build_doc(
             Some(TestResultDoc {
                 id: inst.id,
                 test_name: name.clone(),
+                test_manager: Some(TestManager(manager.clone())),
                 run: run.clone(),
                 state: TestState::Running {
                     discovered_at: inst.discovered_at.clone(),
@@ -226,7 +229,11 @@ fn build_doc(
                 },
             })
         }
-        TestEvent::Finished { name, outcome } => {
+        TestEvent::Finished {
+            name,
+            manager,
+            outcome,
+        } => {
             let inst = instances
                 .entry(name.clone())
                 .or_insert_with(|| new_instance(now));
@@ -255,6 +262,7 @@ fn build_doc(
             Some(TestResultDoc {
                 id,
                 test_name: name.clone(),
+                test_manager: Some(TestManager(manager.clone())),
                 run: run.clone(),
                 state,
             })
@@ -310,6 +318,7 @@ mod tests {
         let d = build_doc(
             &TestEvent::Discovered {
                 name: "t".to_string(),
+                manager: "cargo".to_string(),
             },
             &mut instances,
             &run,
@@ -318,6 +327,7 @@ mod tests {
         let s = build_doc(
             &TestEvent::Started {
                 name: "t".to_string(),
+                manager: "cargo".to_string(),
             },
             &mut instances,
             &run,
@@ -326,6 +336,7 @@ mod tests {
         let f = build_doc(
             &TestEvent::Finished {
                 name: "t".to_string(),
+                manager: "cargo".to_string(),
                 outcome: TestOutcome {
                     passed: true,
                     duration_ms: 12,
@@ -338,6 +349,9 @@ mod tests {
         .unwrap();
         assert_eq!(d.id, s.id);
         assert_eq!(s.id, f.id);
+        assert_eq!(d.test_manager.as_ref().map(|m| m.0.as_str()), Some("cargo"));
+        assert_eq!(s.test_manager.as_ref().map(|m| m.0.as_str()), Some("cargo"));
+        assert_eq!(f.test_manager.as_ref().map(|m| m.0.as_str()), Some("cargo"));
         assert!(matches!(d.state, TestState::Discovered { .. }));
         assert!(matches!(s.state, TestState::Running { .. }));
         match f.state {
@@ -353,6 +367,7 @@ mod tests {
         let f = build_doc(
             &TestEvent::Finished {
                 name: "t".to_string(),
+                manager: "cargo".to_string(),
                 outcome: TestOutcome {
                     passed: false,
                     duration_ms: 7,
@@ -383,6 +398,7 @@ mod tests {
         let f = build_doc(
             &TestEvent::Finished {
                 name: "t".to_string(),
+                manager: "cargo".to_string(),
                 outcome: TestOutcome {
                     passed: false,
                     duration_ms: 1,
@@ -408,6 +424,7 @@ mod tests {
         let s = build_doc(
             &TestEvent::Started {
                 name: "t".to_string(),
+                manager: "cargo".to_string(),
             },
             &mut instances,
             &run,

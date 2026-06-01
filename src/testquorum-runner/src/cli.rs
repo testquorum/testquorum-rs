@@ -261,6 +261,7 @@ async fn discover_and_run(
         for test in &all_tests {
             u.send(TestEvent::Discovered {
                 name: test.name.clone(),
+                manager: test.manager.clone(),
             });
         }
     }
@@ -329,15 +330,15 @@ enum Transition {
 fn render_event(event: &TestEvent) -> Transition {
     match event {
         TestEvent::Discovered { .. } => Transition::Discovered,
-        TestEvent::Started { name } => {
+        TestEvent::Started { name, .. } => {
             println!("  > {}", name);
             Transition::Started
         }
-        TestEvent::Finished { name, outcome } if outcome.passed => {
+        TestEvent::Finished { name, outcome, .. } if outcome.passed => {
             println!("  PASS {} ({}ms)", name, outcome.duration_ms);
             Transition::Passed
         }
-        TestEvent::Finished { name, outcome } => {
+        TestEvent::Finished { name, outcome, .. } => {
             println!("  FAIL {} ({}ms)", name, outcome.duration_ms);
             if !outcome.stderr.is_empty() {
                 for line in outcome.stderr.lines() {
