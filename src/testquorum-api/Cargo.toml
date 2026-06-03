@@ -7,7 +7,7 @@ license.workspace = true
 description = "Progenitor generated Rust interface to api.testquorum.dev"
 
 [dependencies]
-progenitor = "0.13"
+progenitor = "0.14"
 reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls"] }
 serde = { version = "1.0", features = ["derive"] }
 uuid = { version = "1", features = ["serde"] }
