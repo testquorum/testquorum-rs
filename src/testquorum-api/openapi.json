@@ -6,7 +6,7 @@
     "license": {
       "name": ""
     },
-    "version": "0.1.226"
+    "version": "0.1.258"
   },
   "paths": {
     "/auth/api-keys": {
@@ -776,10 +776,52 @@
           "subscription": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/RepoSubscription"
+                "$ref": "#/components/schemas/BillingSubscription"
               }
             ],
             "nullable": true
+          }
+        }
+      },
+      "BillingSubscription": {
+        "type": "object",
+        "description": "Information about billing for a repository.",
+        "required": [
+          "tier",
+          "cadence",
+          "currency",
+          "status",
+          "current_period_end",
+          "cancel_at_period_end",
+          "unit_amount_cents",
+          "last_synced_at"
+        ],
+        "properties": {
+          "cadence": {
+            "$ref": "#/components/schemas/Cadence"
+          },
+          "cancel_at_period_end": {
+            "type": "boolean"
+          },
+          "currency": {
+            "$ref": "#/components/schemas/Currency"
+          },
+          "current_period_end": {
+            "$ref": "#/components/schemas/EpochSecs"
+          },
+          "last_synced_at": {
+            "$ref": "#/components/schemas/EpochSecs"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SubscriptionStatus"
+          },
+          "tier": {
+            "$ref": "#/components/schemas/Tier"
+          },
+          "unit_amount_cents": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -1340,55 +1382,6 @@
           "active"
         ]
       },
-      "RepoSubscription": {
-        "type": "object",
-        "required": [
-          "stripe_subscription_id",
-          "stripe_customer_id",
-          "tier",
-          "cadence",
-          "currency",
-          "status",
-          "current_period_end",
-          "cancel_at_period_end",
-          "unit_amount_cents",
-          "last_synced_at"
-        ],
-        "properties": {
-          "cadence": {
-            "$ref": "#/components/schemas/Cadence"
-          },
-          "cancel_at_period_end": {
-            "type": "boolean"
-          },
-          "currency": {
-            "$ref": "#/components/schemas/Currency"
-          },
-          "current_period_end": {
-            "$ref": "#/components/schemas/EpochSecs"
-          },
-          "last_synced_at": {
-            "$ref": "#/components/schemas/EpochSecs"
-          },
-          "status": {
-            "$ref": "#/components/schemas/SubscriptionStatus"
-          },
-          "stripe_customer_id": {
-            "type": "string"
-          },
-          "stripe_subscription_id": {
-            "type": "string"
-          },
-          "tier": {
-            "$ref": "#/components/schemas/Tier"
-          },
-          "unit_amount_cents": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          }
-        }
-      },
       "RotateApiKeyRequest": {
         "type": "object",
         "properties": {
@@ -1597,13 +1590,6 @@
             "description": "UUIDs of the test instances that were created, in the order\nthey appeared in the request."
           }
         }
-      },
-      "SubscriptionState": {
-        "type": "string",
-        "enum": [
-          "inactive",
-          "active"
-        ]
       },
       "SubscriptionStatus": {
         "type": "string",
