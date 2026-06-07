@@ -60,6 +60,7 @@ jobs:
         run: cargo update --workspace
 
       - name: Create or update PR
+        id: cpr
         uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7
         with:
           token: ${{ secrets.API_SPEC_SYNC_TOKEN }}
@@ -74,3 +75,9 @@ jobs:
 
             Changes were detected between the live API spec and the committed version `${{ steps.compare.outputs.committed_version }}`.
           commit-message: 'Update API spec to ${{ steps.compare.outputs.live_version }}'
+
+      - name: Enable auto-merge
+        if: steps.cpr.outputs.pull-request-operation == 'created'
+        run: gh pr merge --auto "${{ steps.cpr.outputs.pull-request-number }}"
+        env:
+          GH_TOKEN: ${{ secrets.API_SPEC_SYNC_TOKEN }}
