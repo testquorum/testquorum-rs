@@ -30,6 +30,11 @@ pub(crate) enum RunResult {
 #[command(name = "testquorum-runner")]
 #[command(about = "Test runner for testquorum")]
 pub(crate) struct Cli {
+    /// Skip environment detection, authentication, and upload — run entirely
+    /// offline against the local registry.
+    #[arg(long, global = true)]
+    pub local: bool,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
@@ -47,16 +52,22 @@ pub(crate) async fn run_cli() -> Result<RunResult, anyhow::Error> {
     let config = load_config()?;
     let registry = build_registry(&config)?;
 
-    let env = detect_environment();
-
     match cli.command {
         Some(Commands::Discover) => {
-            // Discovery doesn't upload — just identify the session.
-            print_auth_banner(env.as_ref()).await;
+            if !cli.local {
+                let env = detect_environment();
+                print_auth_banner(env.as_ref()).await;
+            }
             discover_only(&registry).await
         }
         Some(Commands::Run) | None => {
-            let upload = prepare_upload(env.as_ref()).await;
+            let upload = if cli.local {
+                println!("local mode: upload disabled");
+                None
+            } else {
+                let env = detect_environment();
+                prepare_upload(env.as_ref()).await
+            };
             discover_and_run(&registry, upload).await
         }
     }
