@@ -6,7 +6,7 @@
     "license": {
       "name": ""
     },
-    "version": "0.1.258"
+    "version": "0.1.279"
   },
   "paths": {
     "/auth/api-keys": {
@@ -339,7 +339,7 @@
         },
         "responses": {
           "200": {
-            "description": "Subscription marked for cancellation",
+            "description": "Subscription cancelled",
             "content": {
               "application/json": {
                 "schema": {
@@ -347,6 +347,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Bad request"
           },
           "401": {
             "description": "Unauthorized"
@@ -404,8 +407,58 @@
           "403": {
             "description": "Forbidden - billing actions require an administrator key"
           },
+          "404": {
+            "description": "Repository not found"
+          },
           "409": {
             "description": "Quote expired"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
+          "503": {
+            "description": "No pricing quote available"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/billing/checkout/complete": {
+      "post": {
+        "tags": [
+          "billing"
+        ],
+        "operationId": "complete_checkout",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteCheckoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Subscription bootstrap completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompleteCheckoutResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - billing actions require an administrator key"
           },
           "500": {
             "description": "Internal server error"
@@ -452,7 +505,7 @@
             "description": "Forbidden - billing actions require an administrator key"
           },
           "404": {
-            "description": "Repository or subscription not found"
+            "description": "No billing account on file for this user"
           },
           "500": {
             "description": "Internal server error"
@@ -792,7 +845,6 @@
           "currency",
           "status",
           "current_period_end",
-          "cancel_at_period_end",
           "unit_amount_cents",
           "last_synced_at"
         ],
@@ -800,8 +852,13 @@
           "cadence": {
             "$ref": "#/components/schemas/Cadence"
           },
-          "cancel_at_period_end": {
-            "type": "boolean"
+          "cancel_at": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EpochSecs"
+              }
+            ],
+            "nullable": true
           },
           "currency": {
             "$ref": "#/components/schemas/Currency"
@@ -845,17 +902,14 @@
       },
       "CancelResponse": {
         "type": "object",
-        "required": [
-          "current_period_end",
-          "cancel_at_period_end"
-        ],
         "properties": {
-          "cancel_at_period_end": {
-            "type": "boolean"
-          },
-          "current_period_end": {
-            "type": "integer",
-            "format": "int64"
+          "active_until": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EpochSecs"
+              }
+            ],
+            "nullable": true
           }
         }
       },
@@ -891,10 +945,12 @@
         "properties": {
           "checkout_url": {
             "type": "string",
+            "description": "Hosted checkout URL the dashboard should redirect the user to.\nSet when payment-method collection is needed (the user has no\nactive subscription yet).",
             "nullable": true
           },
           "updated": {
             "type": "boolean",
+            "description": "True when the repo's item was added to an existing subscription\nwithout any payment-method collection step.",
             "nullable": true
           }
         }
@@ -916,6 +972,21 @@
             "type": "string"
           }
         }
+      },
+      "CompleteCheckoutRequest": {
+        "type": "object",
+        "required": [
+          "session_id"
+        ],
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "description": "The checkout session id returned to the dashboard via the\nsuccess_url after the user submitted their payment details."
+          }
+        }
+      },
+      "CompleteCheckoutResponse": {
+        "type": "object"
       },
       "CreateApiKeyRequest": {
         "type": "object",
@@ -1131,15 +1202,7 @@
         }
       },
       "PortalRequest": {
-        "type": "object",
-        "required": [
-          "repo_id"
-        ],
-        "properties": {
-          "repo_id": {
-            "type": "string"
-          }
-        }
+        "type": "object"
       },
       "PortalResponse": {
         "type": "object",
