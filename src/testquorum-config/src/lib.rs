@@ -4,6 +4,8 @@ use serde::Deserialize;
 pub struct Config {
     #[serde(default = "default_managers")]
     pub managers: Managers,
+    #[serde(default)]
+    pub cloud: Cloud,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -46,6 +48,40 @@ fn default_true() -> bool {
 
 fn default_attrset() -> String {
     "checks".to_string()
+}
+
+/// How the runner interacts with the TestQuorum cloud: whether we tolerate
+/// failures and how long we're willing to wait on rate-limit hints.
+///
+/// By default a cloud failure (5xx, 402, network, or a 429 whose
+/// `Retry-After` exceeds the cap) drops the affected flow to its local
+/// fallback (currently: random test order). Set `required = true` to
+/// surface those as hard errors instead — for users who specifically need
+/// every run to reach the cloud.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct Cloud {
+    /// When `true`, an unrecoverable cloud failure exits the runner
+    /// non-zero instead of dropping to the local fallback. Default `false`.
+    #[serde(default)]
+    pub required: bool,
+    /// Upper bound on a single `Retry-After` sleep, in seconds. A 429 with
+    /// a hint at or below this cap is always honored and retried; a hint
+    /// above it is treated as a cloud failure (and behaves per `required`).
+    #[serde(default = "default_max_wait_seconds")]
+    pub max_wait_seconds: u64,
+}
+
+impl Default for Cloud {
+    fn default() -> Self {
+        Self {
+            required: false,
+            max_wait_seconds: default_max_wait_seconds(),
+        }
+    }
+}
+
+fn default_max_wait_seconds() -> u64 {
+    10
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -263,6 +299,26 @@ autodetect = true
     }
 
     #[test]
+    fn test_cloud_defaults_when_omitted() {
+        let config = from_str("").unwrap();
+        assert_eq!(config.cloud, Cloud::default());
+        assert!(!config.cloud.required);
+        assert_eq!(config.cloud.max_wait_seconds, 10);
+    }
+
+    #[test]
+    fn test_cloud_overrides() {
+        let toml = r#"
+[cloud]
+required = true
+max_wait_seconds = 30
+"#;
+        let config = from_str(toml).unwrap();
+        assert!(config.cloud.required);
+        assert_eq!(config.cloud.max_wait_seconds, 30);
+    }
+
+    #[test]
     fn test_config_equality() {
         let config1 = Config {
             managers: Managers {
@@ -274,6 +330,7 @@ autodetect = true
                 cargo: None,
                 treefmt: None,
             },
+            cloud: Cloud::default(),
         };
         let toml = r#"
 [managers]

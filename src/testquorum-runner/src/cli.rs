@@ -4,6 +4,7 @@ use clap::Parser;
 use clap::Subcommand;
 use futures::StreamExt;
 use rand::seq::SliceRandom;
+use testquorum_api::Client;
 
 use crate::CargoManager;
 use crate::Environment;
@@ -18,6 +19,7 @@ use crate::detect_cargo;
 use crate::detect_environment;
 use crate::detect_nix;
 use crate::detect_treefmt;
+use crate::ranker;
 use crate::uploader::Uploader;
 
 pub(crate) enum RunResult {
@@ -61,14 +63,14 @@ pub(crate) async fn run_cli() -> Result<RunResult, anyhow::Error> {
             discover_only(&registry).await
         }
         Some(Commands::Run) | None => {
-            let upload = if cli.local {
+            let inputs = if cli.local {
                 println!("local mode: upload disabled");
                 None
             } else {
                 let env = detect_environment();
                 prepare_upload(env.as_ref()).await
             };
-            discover_and_run(&registry, upload).await
+            discover_and_run(&registry, &config, inputs).await
         }
     }
 }
@@ -96,11 +98,11 @@ async fn print_auth_banner(env: &dyn Environment) {
     }
 }
 
-/// Resolves auth + run context for the run path, printing a single
-/// consolidated banner. Returns the spawned uploader when both pieces are
-/// available; otherwise prints the reason upload is disabled and returns
-/// `None`. Never returns an error: upload is best-effort.
-async fn prepare_upload(env: &dyn Environment) -> Option<Uploader> {
+/// Resolves auth + run context, printing a consolidated banner. Returns the
+/// raw `Client` and `RunContext` so the caller can decide whether to spawn a
+/// plain uploader or first run the ranking flow against them. Never returns
+/// an error: upload is best-effort.
+async fn prepare_upload(env: &dyn Environment) -> Option<(Client, RunContext)> {
     let client = match env.authenticated_client().await {
         Ok(Some(c)) => c,
         Ok(None) => {
@@ -137,7 +139,7 @@ async fn prepare_upload(env: &dyn Environment) -> Option<Uploader> {
     };
 
     println!("uploading test state to {}", ctx.repo_id);
-    Some(Uploader::spawn(client, ctx))
+    Some((client, ctx))
 }
 
 fn load_config() -> Result<testquorum_config::Config, anyhow::Error> {
@@ -163,6 +165,7 @@ fn default_config() -> testquorum_config::Config {
             cargo: None,
             treefmt: None,
         },
+        cloud: testquorum_config::Cloud::default(),
     }
 }
 
@@ -239,7 +242,8 @@ async fn discover_only(registry: &ManagerRegistry) -> Result<RunResult, anyhow::
 
 async fn discover_and_run(
     registry: &ManagerRegistry,
-    upload: Option<Uploader>,
+    config: &testquorum_config::Config,
+    upload_inputs: Option<(Client, RunContext)>,
 ) -> Result<RunResult, anyhow::Error> {
     let mut had_errors = false;
     let mut total_passed = 0;
@@ -259,63 +263,54 @@ async fn discover_and_run(
 
     if all_tests.is_empty() && !had_errors {
         println!("no tests found");
-        if let Some(u) = upload {
-            u.shutdown().await;
-        }
         return Ok(RunResult::Success);
     }
 
-    // Synthesize a Discovered event per test so the uploader can mint the
-    // UUIDv7 it'll reuse for the rest of the lifecycle. We do this in the CLI
-    // layer so managers stay unmodified.
-    if let Some(u) = upload.as_ref() {
-        for test in &all_tests {
-            u.send(TestEvent::Discovered {
-                name: test.name.clone(),
-                manager: test.manager.clone(),
-            });
+    // Phase 2: decide the batch source. Server-ranked when the runner is
+    // authed and ranking succeeds; otherwise local random — unless
+    // `[cloud] required = true`, in which case the cloud failure is fatal.
+    let (mut batches, upload) = prepare_run(upload_inputs, &mut all_tests, config).await?;
+
+    // Phase 3: drain batches, grouping each one by manager so a single
+    // `manager.run(Vec<Test>)` call still gets a batch worth of work.
+    while let Some(batch) = batches.next().await {
+        if batch.is_empty() {
+            continue;
         }
-    }
+        let mut by_manager: HashMap<String, Vec<Test>> = HashMap::new();
+        for test in batch {
+            by_manager
+                .entry(test.manager.clone())
+                .or_default()
+                .push(test);
+        }
+        for manager in registry.managers() {
+            let tests = match by_manager.remove(manager.name()) {
+                Some(t) if !t.is_empty() => t,
+                _ => continue,
+            };
 
-    // Phase 2: randomise order.
-    let mut rng = rand::rng();
-    all_tests.shuffle(&mut rng);
+            println!(
+                "\nrunning {} test(s) from {}...",
+                tests.len(),
+                manager.name()
+            );
 
-    // Phase 3: group by manager so each manager receives only its own tests.
-    let mut by_manager: HashMap<String, Vec<Test>> = HashMap::new();
-    for test in all_tests {
-        by_manager
-            .entry(test.manager.clone())
-            .or_default()
-            .push(test);
-    }
-
-    // Phase 4: run each manager sequentially with its subset.
-    for manager in registry.managers() {
-        let tests = match by_manager.remove(manager.name()) {
-            Some(t) if !t.is_empty() => t,
-            _ => continue,
-        };
-
-        println!(
-            "\nrunning {} test(s) from {}...",
-            tests.len(),
-            manager.name()
-        );
-
-        let mut stream = manager.run(tests).await;
-        while let Some(event) = stream.next().await {
-            match render_event(&event) {
-                Transition::Discovered | Transition::Started => {}
-                Transition::Passed => total_passed += 1,
-                Transition::Failed => total_failed += 1,
-            }
-            if let Some(u) = upload.as_ref() {
-                u.send(event);
+            let mut stream = manager.run(tests).await;
+            while let Some(event) = stream.next().await {
+                match render_event(&event) {
+                    Transition::Discovered | Transition::Started => {}
+                    Transition::Passed => total_passed += 1,
+                    Transition::Failed => total_failed += 1,
+                }
+                if let Some(u) = upload.as_ref() {
+                    u.send(event);
+                }
             }
         }
     }
 
+    batches.shutdown().await;
     if let Some(u) = upload {
         u.shutdown().await;
     }
@@ -329,6 +324,94 @@ async fn discover_and_run(
     } else {
         Ok(RunResult::Success)
     }
+}
+
+/// Either the page stream from a successful ranking attempt, or a single
+/// locally shuffled batch.
+enum Batches {
+    Local(Option<Vec<Test>>),
+    Ranked(ranker::PageStream),
+}
+
+impl Batches {
+    async fn next(&mut self) -> Option<Vec<Test>> {
+        match self {
+            Self::Local(slot) => slot.take(),
+            Self::Ranked(s) => s.next().await,
+        }
+    }
+
+    async fn shutdown(self) {
+        match self {
+            Self::Local(_) => {}
+            Self::Ranked(s) => s.shutdown().await,
+        }
+    }
+}
+
+/// Tries to set up server-side ranking when auth is available.
+///
+/// On a ranker failure, the `[cloud] required` flag decides the response:
+/// `false` (default) → log and fall back to local random order; `true` →
+/// propagate as a hard error so the runner exits non-zero.
+///
+/// `all_tests` is consumed in the local-fallback path and left empty in the
+/// ranked path (since the page stream owns its own copy of the tests).
+async fn prepare_run(
+    upload_inputs: Option<(Client, RunContext)>,
+    all_tests: &mut Vec<Test>,
+    config: &testquorum_config::Config,
+) -> Result<(Batches, Option<Uploader>), anyhow::Error> {
+    if let Some((client, ctx)) = upload_inputs {
+        match ranker::attempt(
+            client.clone(),
+            ctx.repo_id.clone(),
+            ctx.run.clone(),
+            all_tests,
+            &config.cloud,
+        )
+        .await
+        {
+            Ok(ranked) => {
+                println!(
+                    "ranked run: group {} ({} tests submitted)",
+                    ranked.group.group_id,
+                    all_tests.len()
+                );
+                let uploader = Uploader::spawn_with_group(client, ctx, ranked.group);
+                return Ok((Batches::Ranked(ranked.pages), Some(uploader)));
+            }
+            Err(e) => {
+                if config.cloud.required {
+                    return Err(anyhow::anyhow!(
+                        "cloud failed and `[cloud] required = true`: {}",
+                        e
+                    ));
+                }
+                println!("cloud unavailable ({}); using local random order", e);
+                let uploader = Uploader::spawn(client, ctx);
+                // The local-random path relies on the uploader minting a UUID
+                // for each test the first time it sees a `Discovered` event,
+                // and reusing it across later transitions.
+                for test in all_tests.iter() {
+                    uploader.send(TestEvent::Discovered {
+                        name: test.name.clone(),
+                        manager: test.manager.clone(),
+                    });
+                }
+                let shuffled = shuffle(std::mem::take(all_tests));
+                return Ok((Batches::Local(Some(shuffled)), Some(uploader)));
+            }
+        }
+    }
+    let shuffled = shuffle(std::mem::take(all_tests));
+    Ok((Batches::Local(Some(shuffled)), None))
+}
+
+fn shuffle(mut tests: Vec<Test>) -> Vec<Test> {
+    let mut rng = rand::rng();
+    tests.shuffle(&mut rng);
+    tests
 }
 
 enum Transition {

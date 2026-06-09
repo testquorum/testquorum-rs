@@ -2,6 +2,7 @@ mod cli;
 mod config;
 mod environments;
 mod managers;
+mod ranker;
 mod registry;
 mod uploader;
 
