@@ -59,6 +59,21 @@ jobs:
         if: steps.compare.outputs.version_ok == 'true' && steps.compare.outputs.content_changed == 'true'
         run: cargo update --workspace
 
+      - name: Patch missing optional fields
+        if: steps.compare.outputs.version_ok == 'true' && steps.compare.outputs.content_changed == 'true'
+        id: patch
+        continue-on-error: true
+        run: |
+          python3 .github/scripts/patch-missing-optional-fields.py \
+            --summary-file /tmp/patch-summary.md
+          if [ -s /tmp/patch-summary.md ]; then
+            {
+              echo 'summary<<PATCH_SUMMARY_EOF'
+              cat /tmp/patch-summary.md
+              echo PATCH_SUMMARY_EOF
+            } >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create or update PR
         id: cpr
         uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7
@@ -74,6 +89,8 @@ jobs:
             This PR updates the OpenAPI spec to version `${{ steps.compare.outputs.live_version }}`.
 
             Changes were detected between the live API spec and the committed version `${{ steps.compare.outputs.committed_version }}`.
+
+            ${{ steps.patch.outputs.summary }}
           commit-message: 'Update API spec to ${{ steps.compare.outputs.live_version }}'
 
       - name: Enable auto-merge
