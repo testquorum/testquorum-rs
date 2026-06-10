@@ -211,6 +211,8 @@ fn build_doc(
                 state: TestState::Discovered {
                     discovered_at: inst.discovered_at.clone(),
                 },
+                rank: None,
+                test_group: None,
             })
         }
         TestEvent::Started { name, manager } => {
@@ -227,6 +229,8 @@ fn build_doc(
                     discovered_at: inst.discovered_at.clone(),
                     started_at: now.into(),
                 },
+                rank: None,
+                test_group: None,
             })
         }
         TestEvent::Finished {
@@ -265,6 +269,8 @@ fn build_doc(
                 test_manager: Some(TestManager(manager.clone())),
                 run: run.clone(),
                 state,
+                rank: None,
+                test_group: None,
             })
         }
     }
