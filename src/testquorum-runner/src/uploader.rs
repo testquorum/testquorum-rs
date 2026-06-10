@@ -43,6 +43,15 @@ const RETRY_DELAYS: [Duration; 3] = [
     Duration::from_secs(4),
 ];
 
+/// Identifiers minted by the ranker for the explicit Discovered submission.
+/// Reused by the uploader so the rest of the lifecycle (`Running`, terminal)
+/// reuses the same UUID and carries the same `test_group`.
+pub(crate) struct GroupContext {
+    pub(crate) group_id: Uuid,
+    /// `(test_name, test_manager)` → `(uuid, discovered_at)`.
+    pub(crate) instances: HashMap<(String, String), (Uuid, EpochSecs)>,
+}
+
 pub(crate) struct Uploader {
     tx: mpsc::UnboundedSender<TestEvent>,
     handle: JoinHandle<()>,
@@ -50,13 +59,23 @@ pub(crate) struct Uploader {
 
 impl Uploader {
     pub(crate) fn spawn(client: Client, ctx: RunContext) -> Self {
+        Self::spawn_inner(client, ctx, None)
+    }
+
+    /// Spawn an uploader that reuses the UUIDs the ranker already submitted
+    /// and stamps `test_group` on every later transition.
+    pub(crate) fn spawn_with_group(client: Client, ctx: RunContext, group: GroupContext) -> Self {
+        Self::spawn_inner(client, ctx, Some(group))
+    }
+
+    fn spawn_inner(client: Client, ctx: RunContext, group: Option<GroupContext>) -> Self {
         // Unbounded: we never want to drop test events for purely local
         // backpressure reasons. The buffer is bounded in practice by the
         // total number of test transitions in a single run, which is small
         // (a few thousand `TestResultDoc`s at worst), so the memory cost
         // is negligible even when uploads are stalled.
         let (tx, rx) = mpsc::unbounded_channel::<TestEvent>();
-        let handle = tokio::spawn(run(client, ctx, rx));
+        let handle = tokio::spawn(run(client, ctx, rx, group));
         Self { tx, handle }
     }
 
@@ -86,8 +105,32 @@ struct Instance {
     started_at: Option<EpochSecs>,
 }
 
-async fn run(client: Client, ctx: RunContext, mut rx: mpsc::UnboundedReceiver<TestEvent>) {
-    let mut instances: HashMap<String, Instance> = HashMap::new();
+async fn run(
+    client: Client,
+    ctx: RunContext,
+    mut rx: mpsc::UnboundedReceiver<TestEvent>,
+    group: Option<GroupContext>,
+) {
+    let (group_id, mut instances) = match group {
+        Some(g) => {
+            let pre_seeded = g
+                .instances
+                .into_iter()
+                .map(|((name, _manager), (id, discovered_at))| {
+                    (
+                        name,
+                        Instance {
+                            id,
+                            discovered_at,
+                            started_at: None,
+                        },
+                    )
+                })
+                .collect();
+            (Some(g.group_id), pre_seeded)
+        }
+        None => (None, HashMap::new()),
+    };
     let mut buffer: Vec<TestResultDoc> = Vec::with_capacity(FLUSH_BATCH_SIZE);
     let mut interval = tokio::time::interval_at(Instant::now() + FLUSH_INTERVAL, FLUSH_INTERVAL);
     interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -97,7 +140,7 @@ async fn run(client: Client, ctx: RunContext, mut rx: mpsc::UnboundedReceiver<Te
             biased;
             event = rx.recv() => match event {
                 Some(event) => {
-                    if let Some(doc) = build_doc(&event, &mut instances, &ctx.run) {
+                    if let Some(doc) = build_doc(&event, &mut instances, &ctx.run, group_id) {
                         buffer.push(doc);
                         if buffer.len() >= FLUSH_BATCH_SIZE
                             && !flush(&client, &ctx.repo_id, &mut buffer).await
@@ -196,6 +239,7 @@ fn build_doc(
     event: &TestEvent,
     instances: &mut HashMap<String, Instance>,
     run: &Run,
+    group_id: Option<Uuid>,
 ) -> Option<TestResultDoc> {
     let now = SystemTime::now();
     match event {
@@ -207,12 +251,12 @@ fn build_doc(
                 id: inst.id,
                 test_name: name.clone(),
                 test_manager: Some(TestManager(manager.clone())),
+                test_group: group_id,
+                rank: None,
                 run: run.clone(),
                 state: TestState::Discovered {
                     discovered_at: inst.discovered_at.clone(),
                 },
-                rank: None,
-                test_group: None,
             })
         }
         TestEvent::Started { name, manager } => {
@@ -224,13 +268,13 @@ fn build_doc(
                 id: inst.id,
                 test_name: name.clone(),
                 test_manager: Some(TestManager(manager.clone())),
+                test_group: group_id,
+                rank: None,
                 run: run.clone(),
                 state: TestState::Running {
                     discovered_at: inst.discovered_at.clone(),
                     started_at: now.into(),
                 },
-                rank: None,
-                test_group: None,
             })
         }
         TestEvent::Finished {
@@ -267,10 +311,10 @@ fn build_doc(
                 id,
                 test_name: name.clone(),
                 test_manager: Some(TestManager(manager.clone())),
+                test_group: group_id,
+                rank: None,
                 run: run.clone(),
                 state,
-                rank: None,
-                test_group: None,
             })
         }
     }
@@ -328,6 +372,7 @@ mod tests {
             },
             &mut instances,
             &run,
+            None,
         )
         .unwrap();
         let s = build_doc(
@@ -337,6 +382,7 @@ mod tests {
             },
             &mut instances,
             &run,
+            None,
         )
         .unwrap();
         let f = build_doc(
@@ -351,6 +397,7 @@ mod tests {
             },
             &mut instances,
             &run,
+            None,
         )
         .unwrap();
         assert_eq!(d.id, s.id);
@@ -382,6 +429,7 @@ mod tests {
             },
             &mut instances,
             &run,
+            None,
         )
         .unwrap();
         match f.state {
@@ -413,6 +461,7 @@ mod tests {
             },
             &mut instances,
             &run,
+            None,
         )
         .unwrap();
         match f.state {
@@ -421,6 +470,51 @@ mod tests {
             } => assert_eq!(failure_message, "test failed"),
             _ => panic!("expected Failed"),
         }
+    }
+
+    #[test]
+    fn group_id_is_stamped_on_every_transition() {
+        let run = fake_run();
+        let group = Uuid::now_v7();
+        let mut instances = HashMap::new();
+        let d = build_doc(
+            &TestEvent::Discovered {
+                name: "t".to_string(),
+                manager: "cargo".to_string(),
+            },
+            &mut instances,
+            &run,
+            Some(group),
+        )
+        .unwrap();
+        let s = build_doc(
+            &TestEvent::Started {
+                name: "t".to_string(),
+                manager: "cargo".to_string(),
+            },
+            &mut instances,
+            &run,
+            Some(group),
+        )
+        .unwrap();
+        let f = build_doc(
+            &TestEvent::Finished {
+                name: "t".to_string(),
+                manager: "cargo".to_string(),
+                outcome: TestOutcome {
+                    passed: true,
+                    duration_ms: 1,
+                    stderr: String::new(),
+                },
+            },
+            &mut instances,
+            &run,
+            Some(group),
+        )
+        .unwrap();
+        assert_eq!(d.test_group, Some(group));
+        assert_eq!(s.test_group, Some(group));
+        assert_eq!(f.test_group, Some(group));
     }
 
     #[test]
@@ -434,6 +528,7 @@ mod tests {
             },
             &mut instances,
             &run,
+            None,
         )
         .unwrap();
         assert!(matches!(s.state, TestState::Running { .. }));

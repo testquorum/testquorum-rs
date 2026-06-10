@@ -1,2 +1,6 @@
 [managers.nix]
 attrset = "ci"
+
+[cloud]
+required = true
+max_wait_seconds = 60
