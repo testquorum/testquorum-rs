@@ -6,7 +6,7 @@
     "license": {
       "name": ""
     },
-    "version": "0.1.279"
+    "version": "0.1.291"
   },
   "paths": {
     "/auth/api-keys": {
@@ -659,6 +659,219 @@
         ]
       }
     },
+    "/repos/{repo_id}/test-groups": {
+      "post": {
+        "tags": [
+          "test-groups"
+        ],
+        "operationId": "create_test_group",
+        "parameters": [
+          {
+            "name": "repo_id",
+            "in": "path",
+            "description": "Repository identifier (e.g. `github:12345`)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Test group created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateTestGroupResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - invalid repository id"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing Bearer token"
+          },
+          "402": {
+            "description": "Payment required - this repository does not have an active subscription"
+          },
+          "403": {
+            "description": "Forbidden - read-only key"
+          },
+          "404": {
+            "description": "Repository not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded; try again after `Retry-After` seconds"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/repos/{repo_id}/test-groups/{group_id}/queue": {
+      "get": {
+        "tags": [
+          "test-groups"
+        ],
+        "operationId": "get_queue_page",
+        "parameters": [
+          {
+            "name": "repo_id",
+            "in": "path",
+            "description": "Repository identifier (e.g. `github:12345`)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "group_id",
+            "in": "path",
+            "description": "Test group identifier (UUIDv7)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "description": "Cursor returned by the previous `/queue` call. Encoded as a\ndecimal `rank` value; pass the previous response's\n`next_cursor` verbatim. Omit on the first call.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "nullable": true,
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of entries to return. Defaults to 256, clamped\nto a server-side maximum of 1024.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "nullable": true,
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Next page of incomplete entries in rank order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueuePageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - invalid repository id, group id, or query parameter"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing Bearer token"
+          },
+          "402": {
+            "description": "Payment required - this repository does not have an active subscription"
+          },
+          "403": {
+            "description": "Forbidden - caller's scope is not a superset of the group's owner"
+          },
+          "404": {
+            "description": "Repository or test group not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded; try again after `Retry-After` seconds"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/repos/{repo_id}/test-groups/{group_id}/rank": {
+      "post": {
+        "tags": [
+          "test-groups"
+        ],
+        "operationId": "rank_test_group",
+        "parameters": [
+          {
+            "name": "repo_id",
+            "in": "path",
+            "description": "Repository identifier (e.g. `github:12345`)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "group_id",
+            "in": "path",
+            "description": "Test group identifier (UUIDv7)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ranks stamped on every entry in the group",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RankResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - invalid repository id or group id"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing Bearer token"
+          },
+          "402": {
+            "description": "Payment required - this repository does not have an active subscription"
+          },
+          "403": {
+            "description": "Forbidden - read-only key, or caller's permissions are not a superset of the group's owner"
+          },
+          "404": {
+            "description": "Repository or test group not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded; try again after `Retry-After` seconds"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/repos/{repo_id}/test-results": {
       "post": {
         "tags": [
@@ -1016,6 +1229,19 @@
           },
           "scope": {
             "$ref": "#/components/schemas/PublicKeyScope"
+          }
+        }
+      },
+      "CreateTestGroupResponse": {
+        "type": "object",
+        "required": [
+          "group_id"
+        ],
+        "properties": {
+          "group_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Stable identifier for the new group. Use this on every\nsubsequent grouped test-result submission and on the `/rank`\nand `/queue` calls. UUIDv7."
           }
         }
       },
@@ -1380,6 +1606,28 @@
           "propertyName": "kind"
         }
       },
+      "QueuePageResponse": {
+        "type": "object",
+        "required": [
+          "tests"
+        ],
+        "properties": {
+          "next_cursor": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Cursor for the next page, or `null` if the current page is the\nfinal one. Pass this value verbatim as `after=` on the next\n`/queue` call.",
+            "nullable": true,
+            "minimum": 0
+          },
+          "tests": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TestResultDoc"
+            },
+            "description": "Next batch of test results, in rank order. Entries may have\ntransitioned to a terminal state by the time the runner reads\nthem. The cost reported to the bill is one unit of class C\nper entry returned."
+          }
+        }
+      },
       "QuoteResponse": {
         "type": "object",
         "description": "A pricing quote response containing subscription tiers and pricing information.",
@@ -1404,6 +1652,20 @@
           },
           "valid_until": {
             "$ref": "#/components/schemas/EpochSecs"
+          }
+        }
+      },
+      "RankResponse": {
+        "type": "object",
+        "required": [
+          "ranked"
+        ],
+        "properties": {
+          "ranked": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of entries in the test group at the time `/rank` was\ncalled. Every entry has its `rank` field stamped on each call,\nso re-calling `/rank` produces a fresh ordering. The cost\nreported to the bill is `max(1, ranked)` units of class A — an\nempty group still bills one unit for the dispatch.",
+            "minimum": 0
           }
         }
       },
@@ -1687,11 +1949,24 @@
             "format": "uuid",
             "description": "Stable identifier for this test instance. Must be a UUIDv7\n(RFC 9562 §5.7); other UUID versions are rejected."
           },
+          "rank": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Server-stamped rank within the test group, written by\n`POST /test-groups/{id}/rank`. Drives the order in which the\nrunner consumes entries via the queue endpoint. Clients may not\nsupply this field on submission; entries with `rank` set on the\nwire are rejected.",
+            "nullable": true,
+            "minimum": 0
+          },
           "run": {
             "$ref": "#/components/schemas/Run"
           },
           "state": {
             "$ref": "#/components/schemas/TestState"
+          },
+          "test_group": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Optional reference to a test group this result is part of.\nWhen set, the caller's API key must have access to the group\nfor the write to be accepted. Immutable after first write — a\nresubmit cannot change which group an entry belongs to.",
+            "nullable": true
           },
           "test_manager": {
             "allOf": [
