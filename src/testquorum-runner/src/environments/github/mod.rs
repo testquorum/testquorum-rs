@@ -13,6 +13,7 @@ use testquorum_api::types::ExchangeRequest;
 use testquorum_api::types::InitiateRequest;
 use testquorum_api::types::Run;
 use testquorum_api::types::RunKind;
+use testquorum_api::types::Trigger;
 
 use super::Environment;
 use super::RunContext;
@@ -74,10 +75,19 @@ impl Environment for GitHubEnvironment {
         let event_name = std::env::var("GITHUB_EVENT_NAME").unwrap_or_default();
         let base_ref = std::env::var("GITHUB_BASE_REF").unwrap_or_default();
         let event_path = std::env::var("GITHUB_EVENT_PATH").unwrap_or_default();
+        let ref_name = std::env::var("GITHUB_REF_NAME").unwrap_or_default();
+        let ref_type = std::env::var("GITHUB_REF_TYPE").unwrap_or_default();
 
         // All git2 work happens off the async runtime — libgit2 is blocking.
         let run = tokio::task::spawn_blocking(move || {
-            build_run(&head_sha, &event_name, &base_ref, &event_path)
+            build_run(
+                &head_sha,
+                &event_name,
+                &base_ref,
+                &event_path,
+                &ref_name,
+                &ref_type,
+            )
         })
         .await
         .map_err(|e| anyhow::anyhow!("git task panicked: {}", e))?;
@@ -113,11 +123,26 @@ struct MergeGroupPayload {
     base_sha: String,
 }
 
+/// Minimal typed view of the `push` event payload — we only need the
+/// repository's default branch to tell a land (push to default) apart from a
+/// push to some other branch (treated as a diff).
+#[derive(serde::Deserialize)]
+struct PushEvent {
+    repository: PushRepository,
+}
+
+#[derive(serde::Deserialize)]
+struct PushRepository {
+    default_branch: String,
+}
+
 fn build_run(
     head_sha: &str,
     event_name: &str,
     base_ref: &str,
     event_path: &str,
+    ref_name: &str,
+    ref_type: &str,
 ) -> BuildRunOutcome {
     let repo = match git::open() {
         Ok(r) => r,
@@ -152,7 +177,6 @@ fn build_run(
     enum KindTag {
         Diff,
         Land,
-        Merge,
     }
 
     let (tag, base_oid): (KindTag, Oid) = match event_name {
@@ -162,47 +186,83 @@ fn build_run(
                     "GITHUB_BASE_REF is empty on a pull_request event".to_string(),
                 );
             }
-            let target = format!("refs/remotes/origin/{}", base_ref);
-            let target_oid = match repo.refname_to_id(&target) {
-                Ok(o) => o,
-                Err(e) => {
-                    return BuildRunOutcome::Skip(format!(
-                        "could not resolve {} (fetch-depth too shallow?): {}",
-                        target,
-                        e.message()
-                    ));
-                }
-            };
-            let base = match git::merge_base(&repo, head_oid, target_oid) {
-                Ok(o) => o,
-                Err(e) => {
-                    return BuildRunOutcome::Skip(format!(
-                        "could not compute merge-base: {}",
-                        e.message()
-                    ));
-                }
-            };
-            (KindTag::Diff, base)
+            match diff_base(&repo, head_oid, base_ref) {
+                Ok(base) => (KindTag::Diff, base),
+                Err(reason) => return BuildRunOutcome::Skip(reason),
+            }
         }
+        // A push to the default branch is a land (post-land check). A push to any
+        // other branch is treated as a diff against the default branch. Tag
+        // pushes aren't supported yet.
         "push" => {
-            let head_commit = match repo.find_commit(head_oid) {
-                Ok(c) => c,
+            if ref_type == "tag" {
+                return BuildRunOutcome::Skip(
+                    "tag pushes are not supported for upload".to_string(),
+                );
+            }
+            if ref_name.is_empty() {
+                return BuildRunOutcome::Skip(
+                    "GITHUB_REF_NAME is empty on a push event".to_string(),
+                );
+            }
+            if event_path.is_empty() {
+                return BuildRunOutcome::Skip(
+                    "GITHUB_EVENT_PATH is not set on a push event".to_string(),
+                );
+            }
+            let payload = match std::fs::read_to_string(event_path) {
+                Ok(s) => s,
                 Err(e) => {
                     return BuildRunOutcome::Skip(format!(
-                        "could not load head commit: {}",
-                        e.message()
+                        "could not read GITHUB_EVENT_PATH: {}",
+                        e
                     ));
                 }
             };
-            let parent = match head_commit.parent_id(0) {
-                Ok(o) => o,
-                Err(_) => {
-                    return BuildRunOutcome::Skip(
-                        "head commit has no first parent (root commit?)".to_string(),
-                    );
+            let event: PushEvent = match serde_json::from_str(&payload) {
+                Ok(v) => v,
+                Err(e) => {
+                    return BuildRunOutcome::Skip(format!(
+                        "could not parse push event payload: {}",
+                        e
+                    ));
                 }
             };
-            (KindTag::Merge, parent)
+            if ref_name == event.repository.default_branch {
+                return BuildRunOutcome::Ok(Run {
+                    head,
+                    kind: RunKind::PostLand {
+                        branch: ref_name.to_string(),
+                        trigger: Trigger::Push,
+                    },
+                });
+            }
+            match diff_base(&repo, head_oid, &event.repository.default_branch) {
+                Ok(base) => (KindTag::Diff, base),
+                Err(reason) => return BuildRunOutcome::Skip(reason),
+            }
+        }
+        // schedule (nightly) and workflow_dispatch (manual) are post-land checks
+        // against the branch tip at the time the job ran — no merge-base.
+        "schedule" | "workflow_dispatch" => {
+            if ref_name.is_empty() {
+                return BuildRunOutcome::Skip(format!(
+                    "GITHUB_REF_NAME is empty on a {} event",
+                    event_name
+                ));
+            }
+            let trigger = if event_name == "schedule" {
+                Trigger::Scheduled
+            } else {
+                Trigger::Manual
+            };
+            return BuildRunOutcome::Ok(Run {
+                head,
+                kind: RunKind::PostLand {
+                    branch: ref_name.to_string(),
+                    trigger,
+                },
+            });
         }
         // merge_group.base_sha is "the SHA of the merge group's parent
         // commit" — the destination tip when this group is first in the
@@ -272,10 +332,25 @@ fn build_run(
     let kind = match tag {
         KindTag::Diff => RunKind::Diff { merge_base },
         KindTag::Land => RunKind::Land { merge_base },
-        KindTag::Merge => RunKind::Merge { merge_base },
     };
 
     BuildRunOutcome::Ok(Run { head, kind })
+}
+
+/// Merge-base of `head_oid` against `refs/remotes/origin/<branch>`, for building
+/// a Diff run. Returns a human-readable skip reason on any failure (commonly a
+/// too-shallow fetch that left the target ref or merge-base unreachable).
+fn diff_base(repo: &git2::Repository, head_oid: Oid, branch: &str) -> Result<Oid, String> {
+    let target = format!("refs/remotes/origin/{}", branch);
+    let target_oid = repo.refname_to_id(&target).map_err(|e| {
+        format!(
+            "could not resolve {} (fetch-depth too shallow?): {}",
+            target,
+            e.message()
+        )
+    })?;
+    git::merge_base(repo, head_oid, target_oid)
+        .map_err(|e| format!("could not compute merge-base: {}", e.message()))
 }
 
 async fn run_handshake() -> Result<String, anyhow::Error> {
