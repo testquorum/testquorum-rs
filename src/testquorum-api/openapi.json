@@ -6,7 +6,7 @@
     "license": {
       "name": ""
     },
-    "version": "0.1.291"
+    "version": "0.1.298"
   },
   "paths": {
     "/auth/api-keys": {
@@ -872,6 +872,81 @@
         ]
       }
     },
+    "/repos/{repo_id}/test-groups/{group_id}/tests": {
+      "get": {
+        "tags": [
+          "test-groups"
+        ],
+        "operationId": "list_test_group_tests",
+        "parameters": [
+          {
+            "name": "repo_id",
+            "in": "path",
+            "description": "Repository identifier (e.g. `github:12345`)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "group_id",
+            "in": "path",
+            "description": "Test group identifier (UUIDv7)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "description": "Cursor from the previous page's `next_cursor`. The returned page\nstarts strictly after this test id. Omit on the first page.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "nullable": true
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of entries to return. Defaults to 256, clamped to\na server-side maximum of 1024.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "nullable": true,
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of the group's tests in id order. The `ETag` is the group's last-changed marker; pass it back as `If-None-Match` on page one to get a `304` while nothing has changed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestGroupTestsPage"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified since the supplied `If-None-Match`"
+          },
+          "400": {
+            "description": "Bad request - invalid repository id, group id, or query parameter"
+          },
+          "404": {
+            "description": "Test group not found, or the caller lacks read access to it"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/repos/{repo_id}/test-results": {
       "post": {
         "tags": [
@@ -940,6 +1015,58 @@
             "bearer_auth": []
           }
         ]
+      }
+    },
+    "/repos/{repo_id}/test-results/{id}": {
+      "get": {
+        "tags": [
+          "test-results"
+        ],
+        "operationId": "get_test_result",
+        "parameters": [
+          {
+            "name": "repo_id",
+            "in": "path",
+            "description": "Repository identifier (e.g. `github:12345`)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Test result identifier (UUIDv7)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The current test result. The `ETag` is its last-changed marker; pass it back as `If-None-Match` to get a `304` while the result is unchanged — a terminal result never changes again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestResultDoc"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified since the supplied `If-None-Match`"
+          },
+          "400": {
+            "description": "Bad request - invalid repository id or test id"
+          },
+          "404": {
+            "description": "Test result not found, or the caller lacks read access"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
       }
     },
     "/schedule-call": {
@@ -1928,6 +2055,27 @@
           "unpaid",
           "paused"
         ]
+      },
+      "TestGroupTestsPage": {
+        "type": "object",
+        "required": [
+          "tests"
+        ],
+        "properties": {
+          "next_cursor": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Cursor for the next page, or absent on the final page. Pass it\nverbatim as `after` on the next call.",
+            "nullable": true
+          },
+          "tests": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TestResultDoc"
+            },
+            "description": "Member tests for this page, ordered by test id. The ordering is\nstable: a test never changes position as its state advances, so\npaging never skips or repeats an entry even while results are\nstill landing."
+          }
+        }
       },
       "TestManager": {
         "type": "string",
