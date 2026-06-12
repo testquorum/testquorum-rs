@@ -1875,7 +1875,7 @@ dependencies = [
 
 [[package]]
 name = "testquorum-api"
-version = "0.1.291"
+version = "0.1.298"
 dependencies = [
  "progenitor",
  "reqwest",
