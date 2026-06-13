@@ -6,7 +6,7 @@
     "license": {
       "name": ""
     },
-    "version": "0.1.298"
+    "version": "0.1.301"
   },
   "paths": {
     "/auth/api-keys": {
@@ -923,7 +923,7 @@
         ],
         "responses": {
           "200": {
-            "description": "A page of the group's tests in id order. The `ETag` is the group's last-changed marker; pass it back as `If-None-Match` on page one to get a `304` while nothing has changed.",
+            "description": "A page of the group's tests in id order. The `ETag` is the group's last-changed marker; pass it back as `If-None-Match` on page one to get a `304` while nothing has changed. Test groups in public repositories are readable without authentication.",
             "content": {
               "application/json": {
                 "schema": {
@@ -939,7 +939,7 @@
             "description": "Bad request - invalid repository id, group id, or query parameter"
           },
           "404": {
-            "description": "Test group not found, or the caller lacks read access to it"
+            "description": "Test group not found, or the caller lacks read access to it. Test groups in private repositories require a Bearer token with read access."
           },
           "500": {
             "description": "Internal server error"
@@ -1045,7 +1045,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The current test result. The `ETag` is its last-changed marker; pass it back as `If-None-Match` to get a `304` while the result is unchanged — a terminal result never changes again.",
+            "description": "The current test result. The `ETag` is its last-changed marker; pass it back as `If-None-Match` to get a `304` while the result is unchanged — a terminal result never changes again. Test results in public repositories are readable without authentication.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1061,7 +1061,7 @@
             "description": "Bad request - invalid repository id or test id"
           },
           "404": {
-            "description": "Test result not found, or the caller lacks read access"
+            "description": "Test result not found, or the caller lacks read access. Test results in private repositories require a Bearer token with read access."
           },
           "500": {
             "description": "Internal server error"
