@@ -6,7 +6,7 @@
     "license": {
       "name": ""
     },
-    "version": "0.1.301"
+    "version": "0.1.306"
   },
   "paths": {
     "/auth/api-keys": {
@@ -633,7 +633,7 @@
         "operationId": "list_repos",
         "responses": {
           "200": {
-            "description": "Repositories listed successfully",
+            "description": "Repositories the caller has a role on: those whose subscription belongs to the caller, and those where the caller was granted a role",
             "content": {
               "application/json": {
                 "schema": {
@@ -647,6 +647,172 @@
           },
           "401": {
             "description": "Unauthorized - invalid or missing Bearer token"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/repos/{repo_id}/members": {
+      "get": {
+        "tags": [
+          "members"
+        ],
+        "operationId": "list_members",
+        "parameters": [
+          {
+            "name": "repo_id",
+            "in": "path",
+            "description": "Repository identifier (e.g. `github:12345`)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Accounts with an access role on this repository",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MemberResponse"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - invalid repository id"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing Bearer token"
+          },
+          "403": {
+            "description": "Forbidden - requires an administrator key and an admin role on the repository"
+          },
+          "404": {
+            "description": "Repository not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "members"
+        ],
+        "operationId": "add_member",
+        "parameters": [
+          {
+            "name": "repo_id",
+            "in": "path",
+            "description": "Repository identifier (e.g. `github:12345`)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddMemberRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Role granted; re-granting to the same account overwrites the previous role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - invalid repository id, unknown login, or the login already holds the billing admin role"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing Bearer token"
+          },
+          "403": {
+            "description": "Forbidden - only the billing admin may manage members, with an administrator key"
+          },
+          "404": {
+            "description": "Repository not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/repos/{repo_id}/members/{user_id}": {
+      "delete": {
+        "tags": [
+          "members"
+        ],
+        "operationId": "remove_member",
+        "parameters": [
+          {
+            "name": "repo_id",
+            "in": "path",
+            "description": "Repository identifier (e.g. `github:12345`)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "Stable account identifier from the members list (e.g. `github:12345`)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Role revoked"
+          },
+          "400": {
+            "description": "Bad request - invalid repository id or user id"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing Bearer token"
+          },
+          "403": {
+            "description": "Forbidden - only the billing admin may manage members, with an administrator key"
+          },
+          "404": {
+            "description": "Repository or member not found"
           },
           "500": {
             "description": "Internal server error"
@@ -1108,6 +1274,22 @@
   },
   "components": {
     "schemas": {
+      "AddMemberRequest": {
+        "type": "object",
+        "required": [
+          "login",
+          "role"
+        ],
+        "properties": {
+          "login": {
+            "type": "string",
+            "description": "The new member's login on the repository's forge."
+          },
+          "role": {
+            "$ref": "#/components/schemas/GrantableRole"
+          }
+        }
+      },
       "ApiKeyResponse": {
         "type": "object",
         "required": [
@@ -1497,6 +1679,13 @@
           }
         }
       },
+      "GrantableRole": {
+        "type": "string",
+        "description": "A role that can be granted to a repository member. Subscription\nownership is not grantable.",
+        "enum": [
+          "admin"
+        ]
+      },
       "InitiateRequest": {
         "type": "object",
         "required": [
@@ -1553,6 +1742,43 @@
             "$ref": "#/components/schemas/EpochSecs"
           }
         }
+      },
+      "MemberResponse": {
+        "type": "object",
+        "required": [
+          "user_id",
+          "login",
+          "role"
+        ],
+        "properties": {
+          "granted_at": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EpochSecs"
+              }
+            ],
+            "nullable": true
+          },
+          "login": {
+            "type": "string",
+            "description": "The member's login on the repository's forge, captured when\naccess was granted."
+          },
+          "role": {
+            "$ref": "#/components/schemas/MemberRole"
+          },
+          "user_id": {
+            "type": "string",
+            "description": "Stable account identifier (e.g. `github:12345`). Use it as the\n`{user_id}` path segment when removing the member."
+          }
+        }
+      },
+      "MemberRole": {
+        "type": "string",
+        "description": "The access role an account holds on a repository.",
+        "enum": [
+          "billing_admin",
+          "admin"
+        ]
       },
       "PortalRequest": {
         "type": "object"
@@ -1803,11 +2029,14 @@
           "source",
           "source_id",
           "state",
-          "trial_available"
+          "role"
         ],
         "properties": {
           "full_name": {
             "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/MemberRole"
           },
           "source": {
             "type": "string"
@@ -1822,7 +2051,8 @@
           },
           "trial_available": {
             "type": "boolean",
-            "description": "True when this repository is eligible for the introductory free trial.\nOnce a trial has ever been started on the repo this becomes false and\nnever returns to true."
+            "description": "True when this repository is eligible for the introductory free trial.\nOnce a trial has ever been started on the repo this becomes false and\nnever returns to true. Present only for the billing admin; other\nroles see no trial or subscription details.",
+            "nullable": true
           }
         }
       },
