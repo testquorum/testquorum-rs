@@ -6,7 +6,7 @@
     "license": {
       "name": ""
     },
-    "version": "0.1.309"
+    "version": "0.1.316"
   },
   "servers": [
     {
@@ -601,6 +601,42 @@
           },
           "500": {
             "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/mailing-list": {
+      "post": {
+        "tags": [
+          "mailing-list"
+        ],
+        "operationId": "subscribe",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MailingListRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Subscribed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailingListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or captcha failed"
+          },
+          "500": {
+            "description": "Internal error"
           }
         }
       }
@@ -1746,6 +1782,32 @@
           },
           "expires_at": {
             "$ref": "#/components/schemas/EpochSecs"
+          }
+        }
+      },
+      "MailingListRequest": {
+        "type": "object",
+        "required": [
+          "email",
+          "turnstile_token"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "turnstile_token": {
+            "type": "string"
+          }
+        }
+      },
+      "MailingListResponse": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean"
           }
         }
       },
