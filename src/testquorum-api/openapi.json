@@ -6,7 +6,7 @@
     "license": {
       "name": ""
     },
-    "version": "0.1.316"
+    "version": "0.1.318"
   },
   "servers": [
     {
@@ -2103,15 +2103,21 @@
           "full_name": {
             "type": "string"
           },
+          "instance": {
+            "type": "string",
+            "description": "Only set for Gitea repos: the instance slug identifying which\nGitea host the repo lives on. Absent for GitHub.",
+            "nullable": true
+          },
           "role": {
             "$ref": "#/components/schemas/MemberRole"
           },
           "source": {
-            "type": "string"
+            "$ref": "#/components/schemas/RepoSource"
           },
           "source_id": {
             "type": "integer",
             "format": "int64",
+            "description": "Forge-issued numeric identifier for the repository. For Gitea,\nthis is instance-scoped — combine with `instance` for a\nglobally unique reference.",
             "minimum": 0
           },
           "state": {
@@ -2123,6 +2129,14 @@
             "nullable": true
           }
         }
+      },
+      "RepoSource": {
+        "type": "string",
+        "description": "The forge that hosts this repository.",
+        "enum": [
+          "github",
+          "gitea"
+        ]
       },
       "RepoState": {
         "type": "string",
