@@ -10,6 +10,7 @@ use crate::CargoManager;
 use crate::Environment;
 use crate::ManagerRegistry;
 use crate::NixManager;
+use crate::NpmManager;
 use crate::RunContext;
 use crate::Test;
 use crate::TestEvent;
@@ -18,6 +19,7 @@ use crate::config::find_config_file;
 use crate::detect_cargo;
 use crate::detect_environment;
 use crate::detect_nix;
+use crate::detect_npm;
 use crate::detect_treefmt;
 use crate::ranker;
 use crate::uploader::Uploader;
@@ -163,6 +165,7 @@ fn default_config() -> testquorum_config::Config {
             autodetect: true,
             nix: None,
             cargo: None,
+            npm: None,
             treefmt: None,
         },
         cloud: testquorum_config::Cloud::default(),
@@ -194,6 +197,24 @@ fn build_registry(config: &testquorum_config::Config) -> Result<ManagerRegistry,
                 registry.register(Box::new(CargoManager::new(manifest_path)));
             }
             Err(e) => eprintln!("warning: cargo detection failed: {}", e),
+        }
+    }
+
+    let npm_config = config.managers.npm.as_ref();
+    let npm_enabled = npm_config.map(|c| c.enabled).unwrap_or(true);
+    let npm_path = npm_config.and_then(|c| c.package_json_path.as_deref());
+
+    // Gate autodetect on package.json existing (like nix gates on flake.nix)
+    // unless an explicit path is configured, in which case let detect_npm report the error.
+    if config.managers.autodetect
+        && npm_enabled
+        && (npm_path.is_some() || std::path::Path::new("package.json").exists())
+    {
+        match detect_npm(npm_path) {
+            Ok(package_json_path) => {
+                registry.register(Box::new(NpmManager::new(package_json_path)));
+            }
+            Err(e) => eprintln!("warning: npm detection failed: {}", e),
         }
     }
 

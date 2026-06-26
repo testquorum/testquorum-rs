@@ -7,12 +7,15 @@ use serde::Serialize;
 
 pub(crate) mod cargo;
 pub(crate) mod nix;
+pub(crate) mod npm;
 pub(crate) mod treefmt;
 
 pub(crate) use cargo::CargoManager;
 pub(crate) use cargo::detect_cargo;
 pub(crate) use nix::NixManager;
 pub(crate) use nix::detect_nix;
+pub(crate) use npm::NpmManager;
+pub(crate) use npm::detect_npm;
 pub(crate) use treefmt::TreefmtManager;
 pub(crate) use treefmt::detect_treefmt;
 
