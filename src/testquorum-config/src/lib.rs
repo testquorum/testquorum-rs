@@ -14,6 +14,7 @@ pub struct Managers {
     pub autodetect: bool,
     pub nix: Option<NixConfig>,
     pub cargo: Option<CargoConfig>,
+    pub npm: Option<NpmConfig>,
     pub treefmt: Option<TreefmtConfig>,
 }
 
@@ -22,6 +23,7 @@ fn default_managers() -> Managers {
         autodetect: true,
         nix: None,
         cargo: None,
+        npm: None,
         treefmt: None,
     }
 }
@@ -82,6 +84,14 @@ impl Default for Cloud {
 
 fn default_max_wait_seconds() -> u64 {
     10
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct NpmConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub package_json_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -247,6 +257,55 @@ autodetect = true
     }
 
     #[test]
+    fn test_npm_config() {
+        let toml = r#"
+[managers]
+autodetect = true
+
+[managers.npm]
+enabled = true
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(
+            config.managers.npm,
+            Some(NpmConfig {
+                enabled: true,
+                package_json_path: None,
+            })
+        );
+    }
+
+    #[test]
+    fn test_npm_package_json_path() {
+        let toml = r#"
+[managers]
+autodetect = true
+
+[managers.npm]
+enabled = true
+package_json_path = "frontend/package.json"
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(
+            config.managers.npm,
+            Some(NpmConfig {
+                enabled: true,
+                package_json_path: Some("frontend/package.json".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn test_npm_default_when_omitted() {
+        let toml = r#"
+[managers]
+autodetect = true
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(config.managers.npm, None);
+    }
+
+    #[test]
     fn test_treefmt_config_enabled() {
         let toml = r#"
 [managers]
@@ -328,6 +387,7 @@ max_wait_seconds = 30
                     attrset: "checks".to_string(),
                 }),
                 cargo: None,
+                npm: None,
                 treefmt: None,
             },
             cloud: Cloud::default(),
