@@ -106,7 +106,7 @@ pub(crate) async fn attempt(
     // extra lookup.
     let now = SystemTime::now();
     let now_epoch: EpochSecs = now.into();
-    let mut instances: HashMap<(String, String), (Uuid, EpochSecs)> =
+    let mut instances: HashMap<(String, TestManager), (Uuid, EpochSecs)> =
         HashMap::with_capacity(tests.len());
     let mut docs: Vec<TestResultDoc> = Vec::with_capacity(tests.len());
     for test in tests {
@@ -123,7 +123,7 @@ pub(crate) async fn attempt(
                 discovered_at: now_epoch.clone(),
             },
             test_group: Some(group_id),
-            test_manager: Some(TestManager(test.manager.clone())),
+            test_manager: Some(test.manager.clone()),
             test_name: test.name.clone(),
         });
     }
@@ -152,7 +152,7 @@ pub(crate) async fn attempt(
 
     // Step 5: build the lookup the page fetcher needs to map ranked entries
     // back to runnable `Test`s, then spawn the prefetcher.
-    let name_to_test: HashMap<(String, String), Test> = tests
+    let name_to_test: HashMap<(String, TestManager), Test> = tests
         .iter()
         .map(|t| ((t.name.clone(), t.manager.clone()), t.clone()))
         .collect();
@@ -172,7 +172,7 @@ fn spawn_page_stream(
     client: Client,
     repo_id: String,
     group_id: Uuid,
-    name_to_test: HashMap<(String, String), Test>,
+    name_to_test: HashMap<(String, TestManager), Test>,
     cfg: testquorum_config::Cloud,
 ) -> PageStream {
     let (tx, rx) = mpsc::channel::<Vec<Test>>(PAGE_BUFFER);
@@ -203,7 +203,7 @@ fn spawn_page_stream(
             let mut batch: Vec<Test> = Vec::with_capacity(resp.tests.len());
             for doc in &resp.tests {
                 let manager = match doc.test_manager.as_ref() {
-                    Some(m) => m.0.clone(),
+                    Some(m) => m.clone(),
                     None => continue,
                 };
                 if let Some(t) = name_to_test.get(&(doc.test_name.clone(), manager)) {

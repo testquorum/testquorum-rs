@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use futures::Stream;
 use serde::Deserialize;
 use serde::Serialize;
+use testquorum_api::types as api;
 use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -22,7 +23,9 @@ pub(crate) mod errors;
 pub(crate) use detect::detect_nix;
 pub(crate) use errors::NixError;
 
-const MANAGER_NAME: &str = "nix";
+fn manager_identity() -> api::TestManager {
+    api::WellKnownTestManager::Nix.into()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct NixTestPayload {
@@ -49,8 +52,8 @@ impl NixManager {
 
 #[async_trait]
 impl TestManager for NixManager {
-    fn name(&self) -> &'static str {
-        MANAGER_NAME
+    fn identity(&self) -> api::TestManager {
+        manager_identity()
     }
 
     async fn discover(&self) -> Result<Vec<Test>, anyhow::Error> {
@@ -104,7 +107,7 @@ impl TestManager for NixManager {
                 };
                 Test {
                     name: name.clone(),
-                    manager: MANAGER_NAME.to_string(),
+                    manager: manager_identity(),
                     payload: serde_json::to_value(&payload)
                         .expect("NixTestPayload serialise is infallible"),
                 }
@@ -122,7 +125,7 @@ impl TestManager for NixManager {
                 if tx
                     .send(TestEvent::Started {
                         name: test.name.clone(),
-                        manager: MANAGER_NAME.to_string(),
+                        manager: manager_identity(),
                     })
                     .await
                     .is_err()
@@ -142,7 +145,7 @@ impl TestManager for NixManager {
                 if tx
                     .send(TestEvent::Finished {
                         name: test.name,
-                        manager: MANAGER_NAME.to_string(),
+                        manager: manager_identity(),
                         outcome,
                     })
                     .await
@@ -253,11 +256,11 @@ mod tests {
         };
         let test = Test {
             name: "foo".to_string(),
-            manager: MANAGER_NAME.to_string(),
+            manager: manager_identity(),
             payload: serde_json::to_value(&payload).unwrap(),
         };
 
-        assert_eq!(test.manager, "nix");
+        assert_eq!(test.manager, api::WellKnownTestManager::Nix.into());
         let parsed: NixTestPayload = serde_json::from_value(test.payload).unwrap();
         assert_eq!(parsed.build_target, "/nix/store/abc-foo.drv^*");
     }

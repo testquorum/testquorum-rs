@@ -49,7 +49,7 @@ const RETRY_DELAYS: [Duration; 3] = [
 pub(crate) struct GroupContext {
     pub(crate) group_id: Uuid,
     /// `(test_name, test_manager)` → `(uuid, discovered_at)`.
-    pub(crate) instances: HashMap<(String, String), (Uuid, EpochSecs)>,
+    pub(crate) instances: HashMap<(String, TestManager), (Uuid, EpochSecs)>,
 }
 
 pub(crate) struct Uploader {
@@ -250,7 +250,7 @@ fn build_doc(
             Some(TestResultDoc {
                 id: inst.id,
                 test_name: name.clone(),
-                test_manager: Some(TestManager(manager.clone())),
+                test_manager: Some(manager.clone()),
                 test_group: group_id,
                 rank: None,
                 run: run.clone(),
@@ -267,7 +267,7 @@ fn build_doc(
             Some(TestResultDoc {
                 id: inst.id,
                 test_name: name.clone(),
-                test_manager: Some(TestManager(manager.clone())),
+                test_manager: Some(manager.clone()),
                 test_group: group_id,
                 rank: None,
                 run: run.clone(),
@@ -310,7 +310,7 @@ fn build_doc(
             Some(TestResultDoc {
                 id,
                 test_name: name.clone(),
-                test_manager: Some(TestManager(manager.clone())),
+                test_manager: Some(manager.clone()),
                 test_group: group_id,
                 rank: None,
                 run: run.clone(),
@@ -342,6 +342,7 @@ fn failure_message_from(stderr: &str) -> String {
 mod tests {
     use testquorum_api::types::Commit;
     use testquorum_api::types::RunKind;
+    use testquorum_api::types::WellKnownTestManager;
 
     use super::*;
     use crate::TestOutcome;
@@ -368,7 +369,7 @@ mod tests {
         let d = build_doc(
             &TestEvent::Discovered {
                 name: "t".to_string(),
-                manager: "cargo".to_string(),
+                manager: WellKnownTestManager::Cargo.into(),
             },
             &mut instances,
             &run,
@@ -378,7 +379,7 @@ mod tests {
         let s = build_doc(
             &TestEvent::Started {
                 name: "t".to_string(),
-                manager: "cargo".to_string(),
+                manager: WellKnownTestManager::Cargo.into(),
             },
             &mut instances,
             &run,
@@ -388,7 +389,7 @@ mod tests {
         let f = build_doc(
             &TestEvent::Finished {
                 name: "t".to_string(),
-                manager: "cargo".to_string(),
+                manager: WellKnownTestManager::Cargo.into(),
                 outcome: TestOutcome {
                     passed: true,
                     duration_ms: 12,
@@ -402,9 +403,18 @@ mod tests {
         .unwrap();
         assert_eq!(d.id, s.id);
         assert_eq!(s.id, f.id);
-        assert_eq!(d.test_manager.as_ref().map(|m| m.0.as_str()), Some("cargo"));
-        assert_eq!(s.test_manager.as_ref().map(|m| m.0.as_str()), Some("cargo"));
-        assert_eq!(f.test_manager.as_ref().map(|m| m.0.as_str()), Some("cargo"));
+        assert_eq!(
+            d.test_manager.as_ref().map(|m| m.to_string()).as_deref(),
+            Some("cargo")
+        );
+        assert_eq!(
+            s.test_manager.as_ref().map(|m| m.to_string()).as_deref(),
+            Some("cargo")
+        );
+        assert_eq!(
+            f.test_manager.as_ref().map(|m| m.to_string()).as_deref(),
+            Some("cargo")
+        );
         assert!(matches!(d.state, TestState::Discovered { .. }));
         assert!(matches!(s.state, TestState::Running { .. }));
         match f.state {
@@ -420,7 +430,7 @@ mod tests {
         let f = build_doc(
             &TestEvent::Finished {
                 name: "t".to_string(),
-                manager: "cargo".to_string(),
+                manager: WellKnownTestManager::Cargo.into(),
                 outcome: TestOutcome {
                     passed: false,
                     duration_ms: 7,
@@ -452,7 +462,7 @@ mod tests {
         let f = build_doc(
             &TestEvent::Finished {
                 name: "t".to_string(),
-                manager: "cargo".to_string(),
+                manager: WellKnownTestManager::Cargo.into(),
                 outcome: TestOutcome {
                     passed: false,
                     duration_ms: 1,
@@ -480,7 +490,7 @@ mod tests {
         let d = build_doc(
             &TestEvent::Discovered {
                 name: "t".to_string(),
-                manager: "cargo".to_string(),
+                manager: WellKnownTestManager::Cargo.into(),
             },
             &mut instances,
             &run,
@@ -490,7 +500,7 @@ mod tests {
         let s = build_doc(
             &TestEvent::Started {
                 name: "t".to_string(),
-                manager: "cargo".to_string(),
+                manager: WellKnownTestManager::Cargo.into(),
             },
             &mut instances,
             &run,
@@ -500,7 +510,7 @@ mod tests {
         let f = build_doc(
             &TestEvent::Finished {
                 name: "t".to_string(),
-                manager: "cargo".to_string(),
+                manager: WellKnownTestManager::Cargo.into(),
                 outcome: TestOutcome {
                     passed: true,
                     duration_ms: 1,
@@ -524,7 +534,7 @@ mod tests {
         let s = build_doc(
             &TestEvent::Started {
                 name: "t".to_string(),
-                manager: "cargo".to_string(),
+                manager: WellKnownTestManager::Cargo.into(),
             },
             &mut instances,
             &run,

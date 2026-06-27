@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use futures::Stream;
 use serde::Deserialize;
 use serde::Serialize;
+use testquorum_api::types as api;
 use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -22,7 +23,9 @@ pub(crate) mod errors;
 pub(crate) use detect::detect_cargo;
 pub(crate) use errors::CargoError;
 
-const MANAGER_NAME: &str = "cargo";
+fn manager_identity() -> api::TestManager {
+    api::WellKnownTestManager::Cargo.into()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct CargoTestPayload {
@@ -80,8 +83,8 @@ impl CargoManager {
 
 #[async_trait]
 impl TestManager for CargoManager {
-    fn name(&self) -> &'static str {
-        MANAGER_NAME
+    fn identity(&self) -> api::TestManager {
+        manager_identity()
     }
 
     async fn discover(&self) -> Result<Vec<Test>, anyhow::Error> {
@@ -112,7 +115,7 @@ impl TestManager for CargoManager {
             for test_name in list {
                 tests.push(Test {
                     name: format!("{}::{}", pkg.name, test_name),
-                    manager: MANAGER_NAME.to_string(),
+                    manager: manager_identity(),
                     payload: serde_json::to_value(&CargoTestPayload {
                         package: pkg.name.clone(),
                         test_name,
@@ -128,7 +131,7 @@ impl TestManager for CargoManager {
             if pkg.targets.iter().any(|t| t.doctest) {
                 tests.push(Test {
                     name: format!("{}::[doctests]", pkg.name),
-                    manager: MANAGER_NAME.to_string(),
+                    manager: manager_identity(),
                     payload: serde_json::to_value(&CargoTestPayload {
                         package: pkg.name.clone(),
                         test_name: "[doctests]".to_string(),
@@ -170,7 +173,7 @@ impl TestManager for CargoManager {
                         if tx
                             .send(TestEvent::Started {
                                 name: test.name.clone(),
-                                manager: MANAGER_NAME.to_string(),
+                                manager: manager_identity(),
                             })
                             .await
                             .is_err()
@@ -191,7 +194,7 @@ impl TestManager for CargoManager {
                         if tx
                             .send(TestEvent::Finished {
                                 name: test.name,
-                                manager: MANAGER_NAME.to_string(),
+                                manager: manager_identity(),
                                 outcome,
                             })
                             .await

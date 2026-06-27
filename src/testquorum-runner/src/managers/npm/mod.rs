@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use futures::Stream;
 use serde::Deserialize;
 use serde::Serialize;
+use testquorum_api::types as api;
 use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -22,6 +23,10 @@ pub(crate) use detect::detect_npm;
 pub(crate) use errors::NpmError;
 
 const MANAGER_NAME: &str = "npm";
+
+fn manager_identity() -> api::TestManager {
+    api::TestManager::custom(MANAGER_NAME).expect("\"npm\" is a valid custom manager name")
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct NpmTestPayload {
@@ -40,14 +45,14 @@ impl NpmManager {
 
 #[async_trait]
 impl TestManager for NpmManager {
-    fn name(&self) -> &'static str {
-        MANAGER_NAME
+    fn identity(&self) -> api::TestManager {
+        manager_identity()
     }
 
     async fn discover(&self) -> Result<Vec<Test>, anyhow::Error> {
         let tests = vec![Test {
             name: "npm test".to_string(),
-            manager: MANAGER_NAME.to_string(),
+            manager: manager_identity(),
             payload: serde_json::to_value(&NpmTestPayload {
                 package_json_path: self.package_json_path.clone(),
             })
@@ -64,7 +69,7 @@ impl TestManager for NpmManager {
                 if tx
                     .send(TestEvent::Started {
                         name: test.name.clone(),
-                        manager: MANAGER_NAME.to_string(),
+                        manager: manager_identity(),
                     })
                     .await
                     .is_err()
@@ -84,7 +89,7 @@ impl TestManager for NpmManager {
                 if tx
                     .send(TestEvent::Finished {
                         name: test.name,
-                        manager: MANAGER_NAME.to_string(),
+                        manager: manager_identity(),
                         outcome,
                     })
                     .await
@@ -159,11 +164,15 @@ mod tests {
         };
         let test = Test {
             name: "npm test".to_string(),
-            manager: MANAGER_NAME.to_string(),
+            manager: manager_identity(),
             payload: serde_json::to_value(&payload).unwrap(),
         };
 
-        assert_eq!(test.manager, "npm");
+        assert_eq!(test.manager.to_string(), "custom:npm");
+        assert_eq!(
+            serde_json::to_value(&test.manager).unwrap(),
+            serde_json::json!("custom:npm")
+        );
         let parsed: NpmTestPayload = serde_json::from_value(test.payload).unwrap();
         assert_eq!(parsed.package_json_path, "package.json");
     }
