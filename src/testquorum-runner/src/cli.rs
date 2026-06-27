@@ -5,6 +5,7 @@ use clap::Subcommand;
 use futures::StreamExt;
 use rand::seq::SliceRandom;
 use testquorum_api::Client;
+use testquorum_api::types::TestManager;
 
 use crate::CargoManager;
 use crate::Environment;
@@ -239,14 +240,14 @@ async fn discover_only(registry: &ManagerRegistry) -> Result<RunResult, anyhow::
         match manager.discover().await {
             Ok(mut tests) => {
                 tests.sort_by(|a, b| a.name.cmp(&b.name));
-                println!("{}: {} test(s)", manager.name(), tests.len());
+                println!("{}: {} test(s)", manager.identity(), tests.len());
                 for test in &tests {
                     println!("  - {}", test.name);
                 }
                 total += tests.len();
             }
             Err(e) => {
-                eprintln!("error discovering from {}: {}", manager.name(), e);
+                eprintln!("error discovering from {}: {}", manager.identity(), e);
                 had_errors = true;
             }
         }
@@ -276,7 +277,7 @@ async fn discover_and_run(
         match manager.discover().await {
             Ok(tests) => all_tests.extend(tests),
             Err(e) => {
-                eprintln!("error discovering from {}: {}", manager.name(), e);
+                eprintln!("error discovering from {}: {}", manager.identity(), e);
                 had_errors = true;
             }
         }
@@ -298,7 +299,7 @@ async fn discover_and_run(
         if batch.is_empty() {
             continue;
         }
-        let mut by_manager: HashMap<String, Vec<Test>> = HashMap::new();
+        let mut by_manager: HashMap<TestManager, Vec<Test>> = HashMap::new();
         for test in batch {
             by_manager
                 .entry(test.manager.clone())
@@ -306,7 +307,7 @@ async fn discover_and_run(
                 .push(test);
         }
         for manager in registry.managers() {
-            let tests = match by_manager.remove(manager.name()) {
+            let tests = match by_manager.remove(&manager.identity()) {
                 Some(t) if !t.is_empty() => t,
                 _ => continue,
             };
@@ -314,7 +315,7 @@ async fn discover_and_run(
             println!(
                 "\nrunning {} test(s) from {}...",
                 tests.len(),
-                manager.name()
+                manager.identity()
             );
 
             let mut stream = manager.run(tests).await;

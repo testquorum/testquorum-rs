@@ -6,7 +6,7 @@
     "license": {
       "name": ""
     },
-    "version": "0.1.318"
+    "version": "0.1.328"
   },
   "servers": [
     {
@@ -2390,8 +2390,25 @@
         }
       },
       "TestManager": {
-        "type": "string",
-        "description": "The test manager that produced a result. One of `cargo`, `nix`, `treefmt`, or `custom:<name>` for an in-house runner.",
+        "oneOf": [
+          {
+            "type": "string",
+            "title": "WellKnownTestManager",
+            "description": "A built-in test manager.",
+            "enum": [
+              "cargo",
+              "nix",
+              "treefmt"
+            ]
+          },
+          {
+            "type": "string",
+            "title": "CustomTestManager",
+            "description": "An in-house runner, encoded as `custom:<name>`.",
+            "pattern": "^custom:.+$"
+          }
+        ],
+        "description": "The test manager that produced a result. Either a built-in manager (`cargo`, `nix`, `treefmt`) or `custom:<name>` for an in-house runner.",
         "example": "cargo"
       },
       "TestResultDoc": {

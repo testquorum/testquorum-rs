@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use futures::Stream;
 use serde::Deserialize;
 use serde::Serialize;
+use testquorum_api::types as api;
 use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -22,9 +23,11 @@ pub(crate) mod errors;
 pub(crate) use detect::detect_treefmt;
 pub(crate) use errors::TreefmtError;
 
-const MANAGER_NAME: &str = "treefmt";
-
 const CONFIG_FILE_NAMES: &[&str] = &["treefmt.toml", ".treefmt.toml"];
+
+fn manager_identity() -> api::TestManager {
+    api::WellKnownTestManager::Treefmt.into()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct TreefmtTestPayload {
@@ -43,8 +46,8 @@ impl TreefmtManager {
 
 #[async_trait]
 impl TestManager for TreefmtManager {
-    fn name(&self) -> &'static str {
-        MANAGER_NAME
+    fn identity(&self) -> api::TestManager {
+        manager_identity()
     }
 
     async fn discover(&self) -> Result<Vec<Test>, anyhow::Error> {
@@ -60,7 +63,7 @@ impl TestManager for TreefmtManager {
 
         let tests = vec![Test {
             name: "treefmt".to_string(),
-            manager: MANAGER_NAME.to_string(),
+            manager: manager_identity(),
             payload: serde_json::to_value(&TreefmtTestPayload {
                 test_name: "treefmt".to_string(),
             })
@@ -77,7 +80,7 @@ impl TestManager for TreefmtManager {
                 if tx
                     .send(TestEvent::Started {
                         name: test.name.clone(),
-                        manager: MANAGER_NAME.to_string(),
+                        manager: manager_identity(),
                     })
                     .await
                     .is_err()
@@ -97,7 +100,7 @@ impl TestManager for TreefmtManager {
                 if tx
                     .send(TestEvent::Finished {
                         name: test.name,
-                        manager: MANAGER_NAME.to_string(),
+                        manager: manager_identity(),
                         outcome,
                     })
                     .await
