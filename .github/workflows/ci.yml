@@ -45,15 +45,6 @@ jobs:
         with:
           arguments: .#ci
 
-      # Build the workspace's test binaries reproducibly with Nix and stage
-      # them where `.testquorum.toml` points the cargo backend, so the runner
-      # sources tests from this archive instead of recompiling locally.
-      - name: Prepare nextest archive
-        run: |
-          SYSTEM=$(nix eval --raw --impure --expr builtins.currentSystem)
-          ARCHIVE_PATH=$(nix build ".#ci.${SYSTEM}.testquorum-nextest-archive" --print-out-paths)
-          zstd -f "$ARCHIVE_PATH/archive.tar" -o /tmp/archive.tar.zst
-
       - name: Build and test
         uses: testquorum/action@3db603cb6367a5777dd7eff11d7df7880ef56b32 # main
         with:

@@ -78,6 +78,30 @@ fn is_uncompressed_tar(header: &[u8]) -> bool {
         .is_some_and(|m| m == TAR_MAGIC)
 }
 
+/// Conventional filename of the archive within a Nix build output directory
+/// (matches the `cp archive.tar $out/` the archive derivation produces).
+const NIX_ARCHIVE_NAME: &str = "archive.tar";
+
+/// Locates the nextest archive inside a Nix build output. The derivation
+/// outputs a directory containing `archive.tar`; tolerate a build that yields
+/// the archive file directly. Kept here (not in the shared Nix builder) because
+/// the `archive.tar` convention is between this backend and the derivation.
+pub(crate) fn archive_in_store_path(out_path: &str) -> Result<String, CargoError> {
+    let out = Path::new(out_path);
+    let archive = if out.is_dir() {
+        out.join(NIX_ARCHIVE_NAME)
+    } else {
+        out.to_path_buf()
+    };
+    if !archive.exists() {
+        return Err(CargoError::ArchivePrepFailed {
+            path: out_path.to_string(),
+            reason: format!("no {NIX_ARCHIVE_NAME} in nix build output"),
+        });
+    }
+    Ok(archive.to_string_lossy().into_owned())
+}
+
 /// Stages a configured archive path into a form nextest accepts (a file named
 /// `*.tar.zst`), detecting the input format from its contents:
 ///
