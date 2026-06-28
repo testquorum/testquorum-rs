@@ -49,6 +49,14 @@ pub struct CargoConfig {
     /// Doctests always run via `cargo test --doc` regardless of this setting.
     #[serde(default)]
     pub nextest: Option<bool>,
+    /// Path to a prebuilt nextest archive. When set, unit/integration tests
+    /// are discovered and run from this archive instead of being compiled
+    /// locally, which forces the nextest backend (and so cannot be combined
+    /// with `nextest = false`). The path may be an uncompressed `.tar` or an
+    /// already-compressed archive; the format is detected from its contents.
+    /// Doctests are unaffected and still run via `cargo test --doc`.
+    #[serde(default)]
+    pub nextest_archive: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -230,6 +238,7 @@ enabled = true
                 enabled: true,
                 manifest_path: None,
                 nextest: None,
+                nextest_archive: None,
             })
         );
     }
@@ -251,6 +260,7 @@ manifest_path = "subdir/Cargo.toml"
                 enabled: true,
                 manifest_path: Some("subdir/Cargo.toml".to_string()),
                 nextest: None,
+                nextest_archive: None,
             })
         );
     }
@@ -268,7 +278,21 @@ nextest = false
                 enabled: true,
                 manifest_path: None,
                 nextest: Some(false),
+                nextest_archive: None,
             })
+        );
+    }
+
+    #[test]
+    fn test_cargo_nextest_archive() {
+        let toml = r#"
+[managers.cargo]
+nextest_archive = "/tmp/tests.tar.zst"
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(
+            config.managers.cargo.and_then(|c| c.nextest_archive),
+            Some("/tmp/tests.tar.zst".to_string())
         );
     }
 

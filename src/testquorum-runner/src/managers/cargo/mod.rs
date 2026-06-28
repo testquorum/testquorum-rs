@@ -26,6 +26,7 @@ pub(crate) use errors::CargoError;
 use nextest::NextestSource;
 use nextest::nextest_list;
 use nextest::nextest_run_one;
+use nextest::prepare_archive;
 
 fn manager_identity() -> api::TestManager {
     api::WellKnownTestManager::Cargo.into()
@@ -122,21 +123,46 @@ fn decide_backend(nextest: Option<bool>, available: bool, manifest_path: &str) -
     backend
 }
 
+/// The workspace root nextest should remap an archive's paths onto: the
+/// directory containing the (workspace) manifest, or the current directory when
+/// that is the manifest's own folder.
+fn workspace_root(manifest_path: &str) -> String {
+    match std::path::Path::new(manifest_path).parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.to_string_lossy().into_owned(),
+        _ => ".".to_string(),
+    }
+}
+
 pub(crate) struct CargoManager {
     manifest_path: String,
     backend: CargoBackend,
 }
 
 impl CargoManager {
-    /// `nextest` is the configured `[managers.cargo] nextest` preference; the
-    /// backend (including the `cargo nextest` `PATH` probe) is resolved here so
-    /// the choice stays entirely inside the cargo module.
-    pub(crate) fn new(manifest_path: String, nextest: Option<bool>) -> Self {
-        let backend = decide_backend(nextest, detect::detect_nextest(), &manifest_path);
-        Self {
+    /// `nextest`/`nextest_archive` are the configured `[managers.cargo]`
+    /// preferences; the backend — the `cargo nextest` `PATH` probe and any
+    /// archive staging — is resolved here so the choice stays entirely inside
+    /// the cargo module. An archive forces the nextest backend; the caller is
+    /// responsible for rejecting the contradictory `nextest = false` pairing.
+    pub(crate) async fn new(
+        manifest_path: String,
+        nextest: Option<bool>,
+        nextest_archive: Option<&str>,
+    ) -> Result<Self, CargoError> {
+        let backend = match nextest_archive {
+            Some(path) => {
+                if !detect::detect_nextest() {
+                    return Err(CargoError::NextestArchiveNoNextest);
+                }
+                let source = prepare_archive(path, workspace_root(&manifest_path)).await?;
+                CargoBackend::Nextest(source)
+            }
+            None => decide_backend(nextest, detect::detect_nextest(), &manifest_path),
+        };
+        Ok(Self {
             manifest_path,
             backend,
-        }
+        })
     }
 }
 
@@ -542,6 +568,16 @@ mod tests {
             false,
             "Cargo.toml"
         )));
+    }
+
+    #[test]
+    fn workspace_root_defaults_to_cwd_for_bare_manifest() {
+        assert_eq!(workspace_root("Cargo.toml"), ".");
+    }
+
+    #[test]
+    fn workspace_root_uses_manifest_parent() {
+        assert_eq!(workspace_root("subdir/Cargo.toml"), "subdir");
     }
 
     #[test]

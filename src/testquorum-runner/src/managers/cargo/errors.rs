@@ -12,6 +12,10 @@ pub(crate) enum CargoError {
     CompilationFailed { stderr: String },
     #[error("cargo nextest failed: {stderr}")]
     NextestFailed { stderr: String },
+    #[error("nextest_archive is set but cargo-nextest was not found on PATH")]
+    NextestArchiveNoNextest,
+    #[error("failed to prepare nextest archive {path}: {reason}")]
+    ArchivePrepFailed { path: String, reason: String },
     #[error("cargo manifest not found at {path}")]
     ManifestNotFound { path: String },
 }
