@@ -32,6 +32,13 @@ pub(crate) fn detect_cargo(manifest_path: Option<&str>) -> Result<String, CargoE
     Ok(resolved.to_string())
 }
 
+/// Reports whether `cargo nextest` is usable, i.e. the `cargo-nextest`
+/// subcommand binary is on `PATH`. Cheap (a `PATH` lookup, no process spawn)
+/// because it is consulted on every cargo-backed run.
+pub(crate) fn detect_nextest() -> bool {
+    which::which("cargo-nextest").is_ok()
+}
+
 fn parse_version(output: &str) -> Option<(u32, u32)> {
     // Parse "cargo 1.84.0 (66221abde 2024-11-19)" -> (1, 84).
     let version_part = output.split_whitespace().nth(1)?;

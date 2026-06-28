@@ -42,6 +42,13 @@ pub struct CargoConfig {
     pub enabled: bool,
     #[serde(default)]
     pub manifest_path: Option<String>,
+    /// Selects the execution backend for unit/integration tests.
+    /// `None` (default) auto-detects: use `cargo nextest` when it is on
+    /// `PATH`, otherwise plain `cargo test`. `Some(false)` forces plain
+    /// `cargo test`; `Some(true)` prefers nextest and warns if it is missing.
+    /// Doctests always run via `cargo test --doc` regardless of this setting.
+    #[serde(default)]
+    pub nextest: Option<bool>,
 }
 
 fn default_true() -> bool {
@@ -222,6 +229,7 @@ enabled = true
             Some(CargoConfig {
                 enabled: true,
                 manifest_path: None,
+                nextest: None,
             })
         );
     }
@@ -242,8 +250,36 @@ manifest_path = "subdir/Cargo.toml"
             Some(CargoConfig {
                 enabled: true,
                 manifest_path: Some("subdir/Cargo.toml".to_string()),
+                nextest: None,
             })
         );
+    }
+
+    #[test]
+    fn test_cargo_nextest_opt_out() {
+        let toml = r#"
+[managers.cargo]
+nextest = false
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(
+            config.managers.cargo,
+            Some(CargoConfig {
+                enabled: true,
+                manifest_path: None,
+                nextest: Some(false),
+            })
+        );
+    }
+
+    #[test]
+    fn test_cargo_nextest_force() {
+        let toml = r#"
+[managers.cargo]
+nextest = true
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(config.managers.cargo.and_then(|c| c.nextest), Some(true));
     }
 
     #[test]
