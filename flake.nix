@@ -204,6 +204,11 @@
             packages = [
               pkgs.jq
               nix-fast-build.packages.${system}.nix-fast-build
+              # testquorum-runner drives the workspace tests in CI through its
+              # cargo nextest backend, so the toolchain and nextest must be on
+              # PATH for it to detect and run them.
+              toolchain
+              pkgs.cargo-nextest
             ];
           };
 
@@ -231,13 +236,6 @@
             testquorum-deny = craneLib.cargoDeny {
               inherit src;
             };
-
-            testquorum-nextest = craneLib.cargoNextest (commonArgs // {
-              inherit cargoArtifacts;
-              partitions = 1;
-              partitionType = "count";
-              cargoNextestPartitionsExtraArgs = "--no-tests=pass";
-            });
           };
         }) // {
       ci = nixpkgs.lib.genAttrs systems (system:

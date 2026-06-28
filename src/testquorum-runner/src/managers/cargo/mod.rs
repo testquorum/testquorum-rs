@@ -19,9 +19,13 @@ use crate::TestOutcome;
 
 pub(crate) mod detect;
 pub(crate) mod errors;
+pub(crate) mod nextest;
 
 pub(crate) use detect::detect_cargo;
 pub(crate) use errors::CargoError;
+use nextest::NextestSource;
+use nextest::nextest_list;
+use nextest::nextest_run_one;
 
 fn manager_identity() -> api::TestManager {
     api::WellKnownTestManager::Cargo.into()
@@ -71,13 +75,68 @@ struct ArtifactProfile {
     test: bool,
 }
 
+/// Which tool actually compiles and runs the unit/integration tests. Doctests
+/// are unaffected — they always run via `cargo test --doc` because nextest
+/// cannot execute them.
+#[derive(Clone)]
+enum CargoBackend {
+    /// Plain `cargo test`: compile test binaries, then run each one with
+    /// `--exact`. The original (and fallback) backend.
+    CargoTest,
+    /// `cargo nextest`, sourcing test binaries per the [`NextestSource`].
+    Nextest(NextestSource),
+}
+
+impl CargoBackend {
+    /// Short human-readable name for diagnostics.
+    fn name(&self) -> &'static str {
+        match self {
+            CargoBackend::CargoTest => "cargo test",
+            CargoBackend::Nextest(_) => "cargo-nextest",
+        }
+    }
+}
+
+/// Picks the execution backend from the configured `nextest` preference and
+/// whether `cargo nextest` is actually available. Kept pure (no `PATH` lookup)
+/// so the decision matrix is unit-testable; [`CargoManager::new`] supplies the
+/// real availability. `None` auto-detects (nextest when present), `Some(false)`
+/// forces plain `cargo test`, `Some(true)` requires nextest and warns on the
+/// fallback when it is missing.
+fn decide_backend(nextest: Option<bool>, available: bool, manifest_path: &str) -> CargoBackend {
+    let backend = if nextest == Some(false) {
+        CargoBackend::CargoTest
+    } else if available {
+        CargoBackend::Nextest(NextestSource::Local {
+            manifest_path: manifest_path.to_string(),
+        })
+    } else {
+        if nextest == Some(true) {
+            eprintln!("warning: cargo nextest requested but not found on PATH; using `cargo test`");
+        }
+        CargoBackend::CargoTest
+    };
+    // Announce the selected backend so a CI run can confirm which one drove the
+    // tests — the two are otherwise indistinguishable in the output.
+    eprintln!("cargo: using {} backend", backend.name());
+    backend
+}
+
 pub(crate) struct CargoManager {
     manifest_path: String,
+    backend: CargoBackend,
 }
 
 impl CargoManager {
-    pub(crate) fn new(manifest_path: String) -> Self {
-        Self { manifest_path }
+    /// `nextest` is the configured `[managers.cargo] nextest` preference; the
+    /// backend (including the `cargo nextest` `PATH` probe) is resolved here so
+    /// the choice stays entirely inside the cargo module.
+    pub(crate) fn new(manifest_path: String, nextest: Option<bool>) -> Self {
+        let backend = decide_backend(nextest, detect::detect_nextest(), &manifest_path);
+        Self {
+            manifest_path,
+            backend,
+        }
     }
 }
 
@@ -96,35 +155,15 @@ impl TestManager for CargoManager {
             .map(|p| (p.id.clone(), p))
             .collect();
 
-        let artifacts = compile_test_binaries(&self.manifest_path).await?;
-
-        let mut tests = Vec::new();
-
-        for artifact in artifacts {
-            if artifact.reason != "compiler-artifact" || !artifact.profile.test {
-                continue;
+        // Unit/integration tests come from the configured backend. Both
+        // backends emit identical `{package}::{test_name}` names and `Unit`
+        // payloads, so a run is fully interchangeable between them on the wire.
+        let mut tests = match &self.backend {
+            CargoBackend::CargoTest => {
+                discover_unit_cargo(&self.manifest_path, &workspace_packages).await?
             }
-            let Some(exe) = artifact.executable else {
-                continue;
-            };
-            let Some(pkg) = workspace_packages.get(&artifact.package_id) else {
-                continue;
-            };
-
-            let list = list_tests_in_binary(&exe).await?;
-            for test_name in list {
-                tests.push(Test {
-                    name: format!("{}::{}", pkg.name, test_name),
-                    manager: manager_identity(),
-                    payload: serde_json::to_value(&CargoTestPayload {
-                        package: pkg.name.clone(),
-                        test_name,
-                        kind: TestKind::Unit,
-                    })
-                    .expect("CargoTestPayload serialise is infallible"),
-                });
-            }
-        }
+            CargoBackend::Nextest(source) => discover_unit_nextest(source).await?,
+        };
 
         // Emit one synthetic test per package that has doctests.
         for pkg in workspace_packages.values() {
@@ -148,6 +187,7 @@ impl TestManager for CargoManager {
     async fn run(&self, tests: Vec<Test>) -> Pin<Box<dyn Stream<Item = TestEvent> + Send>> {
         let (tx, rx) = mpsc::channel::<TestEvent>(1);
         let manifest_path = self.manifest_path.clone();
+        let backend = self.backend.clone();
 
         tokio::spawn(async move {
             // Group by package so each package runs in its own sequential
@@ -168,6 +208,7 @@ impl TestManager for CargoManager {
             for (_pkg, tests) in by_package {
                 let tx = tx.clone();
                 let manifest_path = manifest_path.clone();
+                let backend = backend.clone();
                 handles.push(tokio::spawn(async move {
                     for test in tests {
                         if tx
@@ -183,7 +224,7 @@ impl TestManager for CargoManager {
 
                         let outcome = match serde_json::from_value::<CargoTestPayload>(test.payload)
                         {
-                            Ok(payload) => run_one(&payload, &manifest_path).await,
+                            Ok(payload) => run_one(&payload, &manifest_path, &backend).await,
                             Err(e) => TestOutcome {
                                 passed: false,
                                 duration_ms: 0,
@@ -213,6 +254,57 @@ impl TestManager for CargoManager {
 
         Box::pin(ReceiverStream::new(rx))
     }
+}
+
+/// Builds the wire `Test` for one unit/integration test. Centralised so both
+/// backends produce byte-identical names and payloads.
+fn unit_test(package: &str, test_name: String) -> Test {
+    Test {
+        name: format!("{}::{}", package, test_name),
+        manager: manager_identity(),
+        payload: serde_json::to_value(&CargoTestPayload {
+            package: package.to_string(),
+            test_name,
+            kind: TestKind::Unit,
+        })
+        .expect("CargoTestPayload serialise is infallible"),
+    }
+}
+
+/// Discovers unit/integration tests by compiling the test binaries with
+/// `cargo test --no-run` and asking each one to `--list` its tests.
+async fn discover_unit_cargo(
+    manifest_path: &str,
+    workspace_packages: &HashMap<String, MetadataPackage>,
+) -> Result<Vec<Test>, anyhow::Error> {
+    let artifacts = compile_test_binaries(manifest_path).await?;
+
+    let mut tests = Vec::new();
+    for artifact in artifacts {
+        if artifact.reason != "compiler-artifact" || !artifact.profile.test {
+            continue;
+        }
+        let Some(exe) = artifact.executable else {
+            continue;
+        };
+        let Some(pkg) = workspace_packages.get(&artifact.package_id) else {
+            continue;
+        };
+
+        for test_name in list_tests_in_binary(&exe).await? {
+            tests.push(unit_test(&pkg.name, test_name));
+        }
+    }
+    Ok(tests)
+}
+
+/// Discovers unit/integration tests via `cargo nextest list`.
+async fn discover_unit_nextest(source: &NextestSource) -> Result<Vec<Test>, anyhow::Error> {
+    let cases = nextest_list(source).await?;
+    Ok(cases
+        .into_iter()
+        .map(|c| unit_test(&c.package, c.test_name))
+        .collect())
 }
 
 async fn discover_metadata(manifest_path: &str) -> Result<CargoMetadata, CargoError> {
@@ -305,10 +397,23 @@ async fn list_tests_in_binary(exe: &str) -> Result<Vec<String>, CargoError> {
     Ok(tests)
 }
 
-async fn run_one(payload: &CargoTestPayload, manifest_path: &str) -> TestOutcome {
+async fn run_one(
+    payload: &CargoTestPayload,
+    manifest_path: &str,
+    backend: &CargoBackend,
+) -> TestOutcome {
     let start = Instant::now();
     let (passed, stderr) = match payload.kind {
-        TestKind::Unit => run_unit_test(&payload.package, &payload.test_name, manifest_path).await,
+        // Unit/integration tests follow the backend; doctests never can —
+        // nextest doesn't run them — so they always go through `cargo test`.
+        TestKind::Unit => match backend {
+            CargoBackend::CargoTest => {
+                run_unit_test(&payload.package, &payload.test_name, manifest_path).await
+            }
+            CargoBackend::Nextest(source) => {
+                nextest_run_one(source, &payload.package, &payload.test_name).await
+            }
+        },
         TestKind::Doctests => run_doctests(&payload.package, manifest_path).await,
     };
     TestOutcome {
@@ -399,6 +504,54 @@ mod tests {
             })
             .collect();
         assert_eq!(tests, vec!["foo", "baz"]);
+    }
+
+    fn is_nextest(backend: &CargoBackend) -> bool {
+        matches!(backend, CargoBackend::Nextest(_))
+    }
+
+    #[test]
+    fn decide_backend_auto_uses_nextest_when_available() {
+        assert!(is_nextest(&decide_backend(None, true, "Cargo.toml")));
+    }
+
+    #[test]
+    fn decide_backend_auto_falls_back_without_nextest() {
+        assert!(!is_nextest(&decide_backend(None, false, "Cargo.toml")));
+    }
+
+    #[test]
+    fn decide_backend_opt_out_forces_cargo_test_even_when_available() {
+        assert!(!is_nextest(&decide_backend(
+            Some(false),
+            true,
+            "Cargo.toml"
+        )));
+    }
+
+    #[test]
+    fn decide_backend_force_uses_nextest_when_available() {
+        assert!(is_nextest(&decide_backend(Some(true), true, "Cargo.toml")));
+    }
+
+    #[test]
+    fn decide_backend_force_falls_back_when_missing() {
+        // Warns (to stderr) but must not fail to produce a usable backend.
+        assert!(!is_nextest(&decide_backend(
+            Some(true),
+            false,
+            "Cargo.toml"
+        )));
+    }
+
+    #[test]
+    fn decide_backend_threads_manifest_path_into_local_source() {
+        match decide_backend(None, true, "subdir/Cargo.toml") {
+            CargoBackend::Nextest(NextestSource::Local { manifest_path }) => {
+                assert_eq!(manifest_path, "subdir/Cargo.toml");
+            }
+            _ => panic!("expected local nextest backend"),
+        }
     }
 
     #[test]
