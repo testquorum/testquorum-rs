@@ -46,7 +46,7 @@ jobs:
           arguments: .#ci
 
       - name: Build and test
-        uses: testquorum/action@abd654cd991772c5bae861f87aa0f22c9507dcd1 # main
+        uses: testquorum/action@e9385718a352b70c8b1ced10fe431224ff06cbfc # main
         with:
           version: ${{ github.sha }}
           flake-ref: .#testquorum-runner
