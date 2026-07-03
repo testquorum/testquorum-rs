@@ -6,7 +6,7 @@
     "license": {
       "name": ""
     },
-    "version": "0.1.328"
+    "version": "0.1.351"
   },
   "servers": [
     {
@@ -417,13 +417,10 @@
             "description": "Repository not found"
           },
           "409": {
-            "description": "Quote expired"
+            "description": "Quote expired, or the requested currency conflicts with the existing subscription"
           },
           "500": {
             "description": "Internal server error"
-          },
-          "503": {
-            "description": "No pricing quote available"
           }
         },
         "security": [
@@ -465,6 +462,9 @@
           },
           "403": {
             "description": "Forbidden - billing actions require an administrator key"
+          },
+          "404": {
+            "description": "Checkout session not found"
           },
           "500": {
             "description": "Internal server error"
