@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Install Nix
-        uses: cachix/install-nix-action@2126ae7fc54c9df00dd18f7f18754393182c73cd # v31.9.1
+        uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31.10.6
 
       - name: Setup Nix S3 cache
         uses: testquorum/nix-s3-generations@45aa2ff2b0df67b5f48a1b710c574c754f08a0c7 # v0.1.4
