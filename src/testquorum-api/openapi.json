@@ -6,7 +6,7 @@
     "license": {
       "name": ""
     },
-    "version": "0.1.351"
+    "version": "0.1.362"
   },
   "servers": [
     {
@@ -884,6 +884,21 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/CreateTestGroupRequest"
+                  }
+                ],
+                "nullable": true
+              }
+            }
+          },
+          "required": false
+        },
         "responses": {
           "201": {
             "description": "Test group created",
@@ -896,7 +911,7 @@
             }
           },
           "400": {
-            "description": "Bad request - invalid repository id"
+            "description": "Bad request - invalid repository id, or a check target that does not fit the repository (e.g. a GitHub workflow run target on a non-GitHub repository)"
           },
           "401": {
             "description": "Unauthorized - invalid or missing Bearer token"
@@ -905,7 +920,7 @@
             "description": "Payment required - this repository does not have an active subscription"
           },
           "403": {
-            "description": "Forbidden - read-only key"
+            "description": "Forbidden - read-only key, or the check target names a workflow run attempt other than the one the credential was issued for"
           },
           "404": {
             "description": "Repository not found"
@@ -1477,6 +1492,43 @@
           }
         }
       },
+      "CheckTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Publish to the commit checked by a GitHub Actions workflow run.\nThe check appears on the same commit GitHub associates the\nrun's own checks with, so it shows wherever that run does — a\npull request, a merge queue entry, or a branch push.",
+            "required": [
+              "run_id",
+              "run_attempt",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "github_workflow_run"
+                ]
+              },
+              "run_attempt": {
+                "type": "integer",
+                "format": "int32",
+                "description": "The attempt number of the run, as given by the\n`GITHUB_RUN_ATTEMPT` environment variable. Re-running a\nworkflow keeps its run id and increments the attempt; the\ncheck reflects the group from the highest attempt.",
+                "minimum": 0
+              },
+              "run_id": {
+                "type": "integer",
+                "format": "int64",
+                "description": "The workflow run identifier, as given by the\n`GITHUB_RUN_ID` environment variable inside the run.",
+                "minimum": 0
+              }
+            }
+          }
+        ],
+        "description": "Where to publish a commit check reflecting a test group's outcome.\n\nSupplied when the group is created. A group created without a\ncheck target never publishes a check.",
+        "discriminator": {
+          "propertyName": "kind"
+        }
+      },
       "CheckoutRequest": {
         "type": "object",
         "required": [
@@ -1580,6 +1632,19 @@
           },
           "scope": {
             "$ref": "#/components/schemas/PublicKeyScope"
+          }
+        }
+      },
+      "CreateTestGroupRequest": {
+        "type": "object",
+        "properties": {
+          "check_target": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CheckTarget"
+              }
+            ],
+            "nullable": true
           }
         }
       },
