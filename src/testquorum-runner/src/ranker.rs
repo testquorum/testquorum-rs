@@ -16,6 +16,8 @@ use reqwest::StatusCode;
 use reqwest::header::RETRY_AFTER;
 use testquorum_api::Client;
 use testquorum_api::Error as ApiError;
+use testquorum_api::types::CheckTarget;
+use testquorum_api::types::CreateTestGroupRequest;
 use testquorum_api::types::EpochSecs;
 use testquorum_api::types::Run;
 use testquorum_api::types::SubmitTestResultsRequest;
@@ -84,6 +86,21 @@ impl fmt::Display for RankerError {
     }
 }
 
+/// Builds a GitHub Actions workflow-run check target from the standard
+/// `GITHUB_RUN_ID` and `GITHUB_RUN_ATTEMPT` environment variables.
+///
+/// Returns `None` when the variables are missing or malformed, which lets the
+/// group be created without publishing a commit check.
+fn check_target_from_env() -> Option<CheckTarget> {
+    let run_id = std::env::var("GITHUB_RUN_ID").ok()?;
+    let run_attempt = std::env::var("GITHUB_RUN_ATTEMPT").ok()?;
+
+    Some(CheckTarget::GithubWorkflowRun {
+        run_id: run_id.parse().ok()?,
+        run_attempt: run_attempt.parse().ok()?,
+    })
+}
+
 pub(crate) async fn attempt(
     client: Client,
     repo_id: String,
@@ -91,9 +108,17 @@ pub(crate) async fn attempt(
     tests: &[Test],
     cfg: &testquorum_config::Cloud,
 ) -> Result<RankedRun, RankerError> {
-    // Step 1: create the group.
+    // Step 1: create the group with a GitHub Actions workflow run check target
+    // when running inside GitHub Actions so the test group result is published
+    // as a commit check on the same pull request / merge queue entry.
+    let create_request = CreateTestGroupRequest {
+        check_target: check_target_from_env(),
+    };
     let group_resp = loop {
-        match client.create_test_group(&repo_id).await {
+        match client
+            .create_test_group(&repo_id, Some(&create_request))
+            .await
+        {
             Ok(r) => break r,
             Err(e) => handle_429(cfg, "create_test_group", e).await?,
         }
