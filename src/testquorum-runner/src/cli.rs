@@ -55,7 +55,7 @@ pub(crate) enum Commands {
 pub(crate) async fn run_cli() -> Result<RunResult, anyhow::Error> {
     let cli = Cli::parse();
     let config = load_config()?;
-    let registry = build_registry(&config)?;
+    let registry = build_registry(&config).await?;
 
     match cli.command {
         Some(Commands::Discover) => {
@@ -157,6 +157,13 @@ fn load_config() -> Result<testquorum_config::Config, anyhow::Error> {
     if let Some(nix) = &config.managers.nix {
         validate_attrset(&nix.attrset)?;
     }
+    if let Some(cargo) = &config.managers.cargo {
+        if cargo.nextest == Some(false) && cargo.nextest_archive.is_some() {
+            anyhow::bail!(
+                "`[managers.cargo] nextest_archive` requires the nextest backend and cannot be combined with `nextest = false`"
+            );
+        }
+    }
     Ok(config)
 }
 
@@ -173,7 +180,9 @@ fn default_config() -> testquorum_config::Config {
     }
 }
 
-fn build_registry(config: &testquorum_config::Config) -> Result<ManagerRegistry, anyhow::Error> {
+async fn build_registry(
+    config: &testquorum_config::Config,
+) -> Result<ManagerRegistry, anyhow::Error> {
     let mut registry = ManagerRegistry::new();
 
     let nix_config = config.managers.nix.as_ref();
@@ -192,11 +201,19 @@ fn build_registry(config: &testquorum_config::Config) -> Result<ManagerRegistry,
     let cargo_config = config.managers.cargo.as_ref();
     let cargo_enabled = cargo_config.map(|c| c.enabled).unwrap_or(true);
     let cargo_nextest = cargo_config.and_then(|c| c.nextest);
+    let cargo_archive = cargo_config.and_then(|c| c.nextest_archive.as_deref());
 
     if config.managers.autodetect && cargo_enabled {
         match detect_cargo(cargo_config.and_then(|c| c.manifest_path.as_deref())) {
+            // `CargoManager::new` only fails when `nextest_archive` is
+            // explicitly configured and cannot be resolved/staged — a hard
+            // configuration error, not an "is this a cargo project?" detection
+            // miss. Propagate it so a broken archive fails the run loudly
+            // instead of silently discovering zero cargo tests.
             Ok(manifest_path) => {
-                registry.register(Box::new(CargoManager::new(manifest_path, cargo_nextest)));
+                let manager =
+                    CargoManager::new(manifest_path, cargo_nextest, cargo_archive).await?;
+                registry.register(Box::new(manager));
             }
             Err(e) => eprintln!("warning: cargo detection failed: {}", e),
         }

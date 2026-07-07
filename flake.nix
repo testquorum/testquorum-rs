@@ -119,6 +119,35 @@
             src = fileSetForCrate ./src/testquorum-runner;
           });
 
+          # A reproducible `cargo nextest archive` of the whole workspace.
+          # testquorum-runner's cargo backend consumes this (via
+          # `[managers.cargo] nextest_archive`) instead of compiling the test
+          # binaries locally, so discovery and every run reuse the Nix build.
+          # The store copy is left uncompressed so it caches and deduplicates;
+          # the runner recompresses it to the `.tar.zst` nextest wants.
+          testquorum-nextest-archive = craneLib.buildPackage (commonArgs // {
+            pname = "testquorum-nextest-archive";
+            inherit version cargoArtifacts;
+            doCheck = false;
+            doNotPostBuildInstallCargoBinaries = true;
+            nativeBuildInputs = commonArgs.nativeBuildInputs ++ [
+              pkgs.cargo-nextest
+              pkgs.zstd
+            ];
+            buildPhase = ''
+              runHook preBuild
+              cargo nextest archive --workspace --archive-file archive.tar.zst
+              unzstd archive.tar.zst
+              runHook postBuild
+            '';
+            installPhase = ''
+              runHook preInstall
+              mkdir -p $out
+              cp archive.tar $out/
+              runHook postInstall
+            '';
+          });
+
           # Static musl build for portable CI binaries
           testquorum-runner-static =
             let
@@ -188,7 +217,7 @@
         in
         {
           packages = {
-            inherit testquorum-api testquorum-config testquorum-runner testquorum-runner-static;
+            inherit testquorum-api testquorum-config testquorum-runner testquorum-runner-static testquorum-nextest-archive;
             default = testquorum-runner;
           };
 
@@ -206,9 +235,12 @@
               nix-fast-build.packages.${system}.nix-fast-build
               # testquorum-runner drives the workspace tests in CI through its
               # cargo nextest backend, so the toolchain and nextest must be on
-              # PATH for it to detect and run them.
+              # PATH for it to detect and run them. zstd stages the prebuilt
+              # nextest archive into the `.tar.zst` nextest requires — used by
+              # the CI archive-prep step and by the runner itself.
               toolchain
               pkgs.cargo-nextest
+              pkgs.zstd
             ];
           };
 
