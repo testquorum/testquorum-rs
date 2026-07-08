@@ -9,6 +9,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use testquorum_api::types as api;
 use tokio::process::Command;
+use tokio::sync::OnceCell;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -135,34 +136,62 @@ fn workspace_root(manifest_path: &str) -> String {
 
 pub(crate) struct CargoManager {
     manifest_path: String,
-    backend: CargoBackend,
+    nextest: Option<bool>,
+    nextest_archive: Option<String>,
+    /// The execution backend, resolved on first use rather than at
+    /// construction. Staging an archive is fallible (and, for a `nix://`
+    /// source in a later change, does real work), so it belongs in `discover`'s
+    /// error path — which the run loop reports — not in a constructor that
+    /// would have to abort the whole runner. `run` reuses whatever `discover`
+    /// resolved, so the resolution (and its `cargo nextest`/staging side
+    /// effects) happens exactly once.
+    backend: OnceCell<CargoBackend>,
 }
 
 impl CargoManager {
     /// `nextest`/`nextest_archive` are the configured `[managers.cargo]`
-    /// preferences; the backend — the `cargo nextest` `PATH` probe and any
-    /// archive staging — is resolved here so the choice stays entirely inside
-    /// the cargo module. An archive forces the nextest backend; the caller is
-    /// responsible for rejecting the contradictory `nextest = false` pairing.
-    pub(crate) async fn new(
+    /// preferences. Construction is infallible; the backend — the `cargo
+    /// nextest` `PATH` probe and any archive staging — is resolved lazily in
+    /// [`backend`](Self::backend). An archive forces the nextest backend; the
+    /// caller is responsible for rejecting the contradictory `nextest = false`
+    /// pairing.
+    pub(crate) fn new(
         manifest_path: String,
         nextest: Option<bool>,
-        nextest_archive: Option<&str>,
-    ) -> Result<Self, CargoError> {
-        let backend = match nextest_archive {
-            Some(path) => {
-                if !detect::detect_nextest() {
-                    return Err(CargoError::NextestArchiveNoNextest);
-                }
-                let source = prepare_archive(path, workspace_root(&manifest_path)).await?;
-                CargoBackend::Nextest(source)
-            }
-            None => decide_backend(nextest, detect::detect_nextest(), &manifest_path),
-        };
-        Ok(Self {
+        nextest_archive: Option<String>,
+    ) -> Self {
+        Self {
             manifest_path,
-            backend,
-        })
+            nextest,
+            nextest_archive,
+            backend: OnceCell::new(),
+        }
+    }
+
+    /// Resolves the execution backend once and caches it. An archive is staged
+    /// here — lazily — so a bad archive surfaces as a discovery error the run
+    /// loop can report, rather than aborting construction. Repeated calls (from
+    /// `discover` then `run`) reuse the first result and never re-stage.
+    async fn backend(&self) -> Result<&CargoBackend, CargoError> {
+        self.backend
+            .get_or_try_init(|| async {
+                match self.nextest_archive.as_deref() {
+                    Some(path) => {
+                        if !detect::detect_nextest() {
+                            return Err(CargoError::NextestArchiveNoNextest);
+                        }
+                        let source =
+                            prepare_archive(path, workspace_root(&self.manifest_path)).await?;
+                        Ok(CargoBackend::Nextest(source))
+                    }
+                    None => Ok(decide_backend(
+                        self.nextest,
+                        detect::detect_nextest(),
+                        &self.manifest_path,
+                    )),
+                }
+            })
+            .await
     }
 }
 
@@ -173,6 +202,11 @@ impl TestManager for CargoManager {
     }
 
     async fn discover(&self) -> Result<Vec<Test>, anyhow::Error> {
+        // Resolve the backend first so a broken archive fails fast — before we
+        // spend a `cargo metadata` call — and surfaces as this manager's
+        // discovery error.
+        let backend = self.backend().await?;
+
         let metadata = discover_metadata(&self.manifest_path).await?;
 
         let workspace_packages: HashMap<String, MetadataPackage> = metadata
@@ -184,7 +218,7 @@ impl TestManager for CargoManager {
         // Unit/integration tests come from the configured backend. Both
         // backends emit identical `{package}::{test_name}` names and `Unit`
         // payloads, so a run is fully interchangeable between them on the wire.
-        let mut tests = match &self.backend {
+        let mut tests = match backend {
             CargoBackend::CargoTest => {
                 discover_unit_cargo(&self.manifest_path, &workspace_packages).await?
             }
@@ -213,7 +247,38 @@ impl TestManager for CargoManager {
     async fn run(&self, tests: Vec<Test>) -> Pin<Box<dyn Stream<Item = TestEvent> + Send>> {
         let (tx, rx) = mpsc::channel::<TestEvent>(1);
         let manifest_path = self.manifest_path.clone();
-        let backend = self.backend.clone();
+
+        // `discover` resolves and caches the backend before any `run`, so this
+        // is a cached hit. Stay defensive rather than panic if that invariant
+        // ever breaks: surface it as a per-test failure.
+        let backend = match self.backend().await {
+            Ok(backend) => backend.clone(),
+            Err(e) => {
+                let reason = format!("cargo backend unavailable: {}", e);
+                tokio::spawn(async move {
+                    for test in tests {
+                        let _ = tx
+                            .send(TestEvent::Started {
+                                name: test.name.clone(),
+                                manager: manager_identity(),
+                            })
+                            .await;
+                        let _ = tx
+                            .send(TestEvent::Finished {
+                                name: test.name,
+                                manager: manager_identity(),
+                                outcome: TestOutcome {
+                                    passed: false,
+                                    duration_ms: 0,
+                                    stderr: reason.clone(),
+                                },
+                            })
+                            .await;
+                    }
+                });
+                return Box::pin(ReceiverStream::new(rx));
+            }
+        };
 
         tokio::spawn(async move {
             // Group by package so each package runs in its own sequential
@@ -534,6 +599,76 @@ mod tests {
 
     fn is_nextest(backend: &CargoBackend) -> bool {
         matches!(backend, CargoBackend::Nextest(_))
+    }
+
+    /// A path guaranteed not to exist, so archive staging fails deterministically
+    /// regardless of whether `cargo-nextest` is on `PATH` in the test env.
+    const MISSING_ARCHIVE: &str = "/nonexistent/testquorum/archive.tar.zst";
+
+    #[tokio::test]
+    async fn construction_is_infallible_and_defers_archive_resolution() {
+        // `new` must not touch the filesystem or probe `PATH`: a bad archive is
+        // accepted here and only fails later, in `discover`. If this ever became
+        // fallible again the type would change; this pins the contract.
+        let manager = CargoManager::new(
+            "Cargo.toml".to_string(),
+            None,
+            Some(MISSING_ARCHIVE.to_string()),
+        );
+        assert!(
+            manager.backend.get().is_none(),
+            "backend must stay unresolved until first use"
+        );
+    }
+
+    #[tokio::test]
+    async fn discover_reports_unresolvable_archive_as_error() {
+        // A configured-but-unstageable archive is surfaced as a discovery error
+        // (which the run loop reports and exits non-zero on), never a panic and
+        // never a silently-empty test set.
+        let manager = CargoManager::new(
+            "Cargo.toml".to_string(),
+            None,
+            Some(MISSING_ARCHIVE.to_string()),
+        );
+        let err = manager
+            .discover()
+            .await
+            .expect_err("an unstageable archive must be a discovery error");
+        assert!(!err.to_string().is_empty());
+    }
+
+    #[tokio::test]
+    async fn run_emits_failures_when_backend_unavailable() {
+        use futures::StreamExt;
+
+        // `run` after an unresolvable backend must still drive every test to a
+        // Finished(failed) rather than hang or panic.
+        let manager = CargoManager::new(
+            "Cargo.toml".to_string(),
+            None,
+            Some(MISSING_ARCHIVE.to_string()),
+        );
+        let test = unit_test("pkg", "some_test".to_string());
+        let name = test.name.clone();
+
+        let mut stream = manager.run(vec![test]).await;
+        let mut started = false;
+        let mut finished_failed = false;
+        while let Some(event) = stream.next().await {
+            match event {
+                TestEvent::Started { name: n, .. } if n == name => started = true,
+                TestEvent::Finished {
+                    name: n, outcome, ..
+                } if n == name => {
+                    assert!(!outcome.passed, "unavailable backend must fail the test");
+                    finished_failed = true;
+                }
+                _ => {}
+            }
+        }
+        assert!(started, "expected a Started event");
+        assert!(finished_failed, "expected a failed Finished event");
     }
 
     #[test]

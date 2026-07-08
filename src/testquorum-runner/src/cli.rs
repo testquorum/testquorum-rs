@@ -55,7 +55,7 @@ pub(crate) enum Commands {
 pub(crate) async fn run_cli() -> Result<RunResult, anyhow::Error> {
     let cli = Cli::parse();
     let config = load_config()?;
-    let registry = build_registry(&config).await?;
+    let registry = build_registry(&config);
 
     match cli.command {
         Some(Commands::Discover) => {
@@ -180,9 +180,7 @@ fn default_config() -> testquorum_config::Config {
     }
 }
 
-async fn build_registry(
-    config: &testquorum_config::Config,
-) -> Result<ManagerRegistry, anyhow::Error> {
+fn build_registry(config: &testquorum_config::Config) -> ManagerRegistry {
     let mut registry = ManagerRegistry::new();
 
     let nix_config = config.managers.nix.as_ref();
@@ -201,19 +199,20 @@ async fn build_registry(
     let cargo_config = config.managers.cargo.as_ref();
     let cargo_enabled = cargo_config.map(|c| c.enabled).unwrap_or(true);
     let cargo_nextest = cargo_config.and_then(|c| c.nextest);
-    let cargo_archive = cargo_config.and_then(|c| c.nextest_archive.as_deref());
+    let cargo_archive = cargo_config.and_then(|c| c.nextest_archive.clone());
 
     if config.managers.autodetect && cargo_enabled {
         match detect_cargo(cargo_config.and_then(|c| c.manifest_path.as_deref())) {
-            // `CargoManager::new` only fails when `nextest_archive` is
-            // explicitly configured and cannot be resolved/staged — a hard
-            // configuration error, not an "is this a cargo project?" detection
-            // miss. Propagate it so a broken archive fails the run loudly
-            // instead of silently discovering zero cargo tests.
+            // Construction is infallible: an `nextest_archive` is staged lazily
+            // in `discover`, so a broken archive surfaces there as a discovery
+            // error the run loop reports (non-zero exit), not a construction
+            // abort. Detection failure means "not a cargo project" — skip.
             Ok(manifest_path) => {
-                let manager =
-                    CargoManager::new(manifest_path, cargo_nextest, cargo_archive).await?;
-                registry.register(Box::new(manager));
+                registry.register(Box::new(CargoManager::new(
+                    manifest_path,
+                    cargo_nextest,
+                    cargo_archive,
+                )));
             }
             Err(e) => eprintln!("warning: cargo detection failed: {}", e),
         }
@@ -247,11 +246,11 @@ async fn build_registry(
         }
     }
 
-    Ok(registry)
+    registry
 }
 
 async fn discover_only(registry: &ManagerRegistry) -> Result<RunResult, anyhow::Error> {
-    let mut had_errors = false;
+    let mut discovery_errors: Vec<(TestManager, String)> = Vec::new();
     let mut total = 0;
 
     for manager in registry.managers() {
@@ -266,17 +265,32 @@ async fn discover_only(registry: &ManagerRegistry) -> Result<RunResult, anyhow::
             }
             Err(e) => {
                 eprintln!("error discovering from {}: {}", manager.identity(), e);
-                had_errors = true;
+                discovery_errors.push((manager.identity(), e.to_string()));
             }
         }
     }
 
     println!("\nTotal: {} test(s)", total);
+    report_discovery_errors(&discovery_errors);
 
-    if had_errors {
-        Ok(RunResult::Error)
-    } else {
+    if discovery_errors.is_empty() {
         Ok(RunResult::Success)
+    } else {
+        Ok(RunResult::Error)
+    }
+}
+
+/// Re-states discovery failures after the run summary, since the inline
+/// `error discovering …` line is otherwise buried above all the test output.
+/// The runner still exits non-zero (`RunResult::Error`); this makes the *why*
+/// visible at the end.
+fn report_discovery_errors(errors: &[(TestManager, String)]) {
+    if errors.is_empty() {
+        return;
+    }
+    eprintln!("\n{} manager(s) failed to discover:", errors.len());
+    for (manager, reason) in errors {
+        eprintln!("  - {}: {}", manager, reason);
     }
 }
 
@@ -285,7 +299,7 @@ async fn discover_and_run(
     config: &testquorum_config::Config,
     upload_inputs: Option<(Client, RunContext)>,
 ) -> Result<RunResult, anyhow::Error> {
-    let mut had_errors = false;
+    let mut discovery_errors: Vec<(TestManager, String)> = Vec::new();
     let mut total_passed = 0;
     let mut total_failed = 0;
 
@@ -296,12 +310,12 @@ async fn discover_and_run(
             Ok(tests) => all_tests.extend(tests),
             Err(e) => {
                 eprintln!("error discovering from {}: {}", manager.identity(), e);
-                had_errors = true;
+                discovery_errors.push((manager.identity(), e.to_string()));
             }
         }
     }
 
-    if all_tests.is_empty() && !had_errors {
+    if all_tests.is_empty() && discovery_errors.is_empty() {
         println!("no tests found");
         return Ok(RunResult::Success);
     }
@@ -356,8 +370,9 @@ async fn discover_and_run(
     }
 
     println!("\n{} passed, {} failed", total_passed, total_failed);
+    report_discovery_errors(&discovery_errors);
 
-    if had_errors {
+    if !discovery_errors.is_empty() {
         Ok(RunResult::Error)
     } else if total_failed > 0 {
         Ok(RunResult::TestsFailed)
