@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use clap::Parser;
 use clap::Subcommand;
@@ -22,6 +23,8 @@ use crate::detect_environment;
 use crate::detect_nix;
 use crate::detect_npm;
 use crate::detect_treefmt;
+use crate::managers::nix::NixBuilder;
+use crate::managers::nix::PreFailed;
 use crate::ranker;
 use crate::uploader::Uploader;
 
@@ -55,7 +58,7 @@ pub(crate) enum Commands {
 pub(crate) async fn run_cli() -> Result<RunResult, anyhow::Error> {
     let cli = Cli::parse();
     let config = load_config()?;
-    let registry = build_registry(&config);
+    let (registry, nix_builder) = build_registry(&config);
 
     match cli.command {
         Some(Commands::Discover) => {
@@ -73,7 +76,7 @@ pub(crate) async fn run_cli() -> Result<RunResult, anyhow::Error> {
                 let env = detect_environment();
                 prepare_upload(env.as_ref()).await
             };
-            discover_and_run(&registry, &config, inputs).await
+            discover_and_run(&registry, &config, inputs, nix_builder).await
         }
     }
 }
@@ -180,7 +183,13 @@ fn default_config() -> testquorum_config::Config {
     }
 }
 
-fn build_registry(config: &testquorum_config::Config) -> ManagerRegistry {
+/// Builds the manager registry and, when the nix manager is active, the shared
+/// [`NixBuilder`] a `nix://` cargo archive resolves through. The builder is
+/// returned so the caller can drain the build failures it accumulated during
+/// discovery (see [`NixBuilder::take_pre_failed`]).
+fn build_registry(
+    config: &testquorum_config::Config,
+) -> (ManagerRegistry, Option<Arc<NixBuilder>>) {
     let mut registry = ManagerRegistry::new();
 
     let nix_config = config.managers.nix.as_ref();
@@ -189,9 +198,16 @@ fn build_registry(config: &testquorum_config::Config) -> ManagerRegistry {
         .map(|n| n.attrset.clone())
         .unwrap_or_else(|| "checks".to_string());
 
+    // The builder exists only when the nix manager is registered: that manager
+    // is what reports a `nix://` build's pass/fail, so cargo may only depend on
+    // one when it's active.
+    let mut nix_builder: Option<Arc<NixBuilder>> = None;
     if config.managers.autodetect && nix_enabled && std::path::Path::new("flake.nix").exists() {
         match detect_nix() {
-            Ok(()) => registry.register(Box::new(NixManager::new(nix_attrset))),
+            Ok(()) => {
+                nix_builder = Some(Arc::new(NixBuilder::new(nix_attrset.clone())));
+                registry.register(Box::new(NixManager::new(nix_attrset)));
+            }
             Err(e) => eprintln!("warning: nix detection failed: {}", e),
         }
     }
@@ -212,6 +228,7 @@ fn build_registry(config: &testquorum_config::Config) -> ManagerRegistry {
                     manifest_path,
                     cargo_nextest,
                     cargo_archive,
+                    nix_builder.clone(),
                 )));
             }
             Err(e) => eprintln!("warning: cargo detection failed: {}", e),
@@ -246,7 +263,7 @@ fn build_registry(config: &testquorum_config::Config) -> ManagerRegistry {
         }
     }
 
-    registry
+    (registry, nix_builder)
 }
 
 async fn discover_only(registry: &ManagerRegistry) -> Result<RunResult, anyhow::Error> {
@@ -298,6 +315,7 @@ async fn discover_and_run(
     registry: &ManagerRegistry,
     config: &testquorum_config::Config,
     upload_inputs: Option<(Client, RunContext)>,
+    nix_builder: Option<Arc<NixBuilder>>,
 ) -> Result<RunResult, anyhow::Error> {
     let mut discovery_errors: Vec<(TestManager, String)> = Vec::new();
     let mut total_passed = 0;
@@ -315,7 +333,12 @@ async fn discover_and_run(
         }
     }
 
-    if all_tests.is_empty() && discovery_errors.is_empty() {
+    // A cargo `nix://` archive whose build failed during discovery leaves the
+    // nix manager's corresponding test recorded here, to be submitted terminal
+    // before ranking (which could otherwise skip it, dropping the failure).
+    let pre_failed: Vec<PreFailed> = nix_builder.map(|b| b.take_pre_failed()).unwrap_or_default();
+
+    if all_tests.is_empty() && discovery_errors.is_empty() && pre_failed.is_empty() {
         println!("no tests found");
         return Ok(RunResult::Success);
     }
@@ -323,7 +346,9 @@ async fn discover_and_run(
     // Phase 2: decide the batch source. Server-ranked when the runner is
     // authed and ranking succeeds; otherwise local random — unless
     // `[cloud] required = true`, in which case the cloud failure is fatal.
-    let (mut batches, upload) = prepare_run(upload_inputs, &mut all_tests, config).await?;
+    let (mut batches, upload, pre_submitted) =
+        prepare_run(upload_inputs, &mut all_tests, config, &pre_failed).await?;
+    total_failed += pre_submitted.failed;
 
     // Phase 3: drain batches, grouping each one by manager so a single
     // `manager.run(Vec<Test>)` call still gets a batch worth of work.
@@ -343,6 +368,19 @@ async fn discover_and_run(
                 Some(t) if !t.is_empty() => t,
                 _ => continue,
             };
+            // Drop anything already submitted terminal before ranking: it must
+            // not run (and re-submitting would 409 against the stored Failed).
+            let tests: Vec<Test> = tests
+                .into_iter()
+                .filter(|t| {
+                    !pre_submitted
+                        .skip
+                        .contains(&(t.manager.clone(), t.name.clone()))
+                })
+                .collect();
+            if tests.is_empty() {
+                continue;
+            }
 
             println!(
                 "\nrunning {} test(s) from {}...",
@@ -412,18 +450,34 @@ impl Batches {
 ///
 /// `all_tests` is consumed in the local-fallback path and left empty in the
 /// ranked path (since the page stream owns its own copy of the tests).
+/// Tests submitted terminal-`Failed` before ranking (a tracked `nix://` build a
+/// cargo dependency triggered, which failed). The run loop skips them — they
+/// won't and mustn't run again — and counts them toward the total. Empty on the
+/// local-fallback path, where those tests instead run (and fail) normally.
+#[derive(Default)]
+struct PreSubmitted {
+    skip: std::collections::HashSet<(TestManager, String)>,
+    failed: usize,
+}
+
 async fn prepare_run(
     upload_inputs: Option<(Client, RunContext)>,
     all_tests: &mut Vec<Test>,
     config: &testquorum_config::Config,
-) -> Result<(Batches, Option<Uploader>), anyhow::Error> {
+    pre_failed: &[PreFailed],
+) -> Result<(Batches, Option<Uploader>, PreSubmitted), anyhow::Error> {
     if let Some((client, ctx)) = upload_inputs {
+        let pre_failed_map: ranker::PreFailed = pre_failed
+            .iter()
+            .map(|p| ((p.name.clone(), p.manager.clone()), p.stderr.clone()))
+            .collect();
         match ranker::attempt(
             client.clone(),
             ctx.repo_id.clone(),
             ctx.run.clone(),
             all_tests,
             &config.cloud,
+            &pre_failed_map,
         )
         .await
         {
@@ -434,7 +488,14 @@ async fn prepare_run(
                     all_tests.len()
                 );
                 let uploader = Uploader::spawn_with_group(client, ctx, ranked.group);
-                return Ok((Batches::Ranked(ranked.pages), Some(uploader)));
+                let pre_submitted = PreSubmitted {
+                    skip: pre_failed
+                        .iter()
+                        .map(|p| (p.manager.clone(), p.name.clone()))
+                        .collect(),
+                    failed: pre_failed.len(),
+                };
+                return Ok((Batches::Ranked(ranked.pages), Some(uploader), pre_submitted));
             }
             Err(e) => {
                 if config.cloud.required {
@@ -455,12 +516,22 @@ async fn prepare_run(
                     });
                 }
                 let shuffled = shuffle(std::mem::take(all_tests));
-                return Ok((Batches::Local(Some(shuffled)), Some(uploader)));
+                // Local order didn't pre-submit anything: the pre-failed tests
+                // are still in the batch and run (and fail) like any other.
+                return Ok((
+                    Batches::Local(Some(shuffled)),
+                    Some(uploader),
+                    PreSubmitted::default(),
+                ));
             }
         }
     }
     let shuffled = shuffle(std::mem::take(all_tests));
-    Ok((Batches::Local(Some(shuffled)), None))
+    Ok((
+        Batches::Local(Some(shuffled)),
+        None,
+        PreSubmitted::default(),
+    ))
 }
 
 fn shuffle(mut tests: Vec<Test>) -> Vec<Test> {

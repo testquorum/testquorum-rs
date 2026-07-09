@@ -16,6 +16,17 @@ pub(crate) enum CargoError {
     NextestArchiveNoNextest,
     #[error("failed to prepare nextest archive {path}: {reason}")]
     ArchivePrepFailed { path: String, reason: String },
+    #[error(
+        "`nextest_archive = \"nix://…\"` requires the nix manager, which is not enabled for this run"
+    )]
+    NixArchiveNoNixManager,
+    #[error(
+        "nextest_archive `{installable}` is not a target the nix manager builds; \
+         it must be an attribute under `[managers.nix] attrset`"
+    )]
+    NixArchiveUntracked { installable: String },
+    #[error("failed to evaluate nextest archive `nix://…`: {reason}")]
+    NixArchiveEval { reason: String },
     #[error("cargo manifest not found at {path}")]
     ManifestNotFound { path: String },
 }

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Instant;
 
 use async_trait::async_trait;
@@ -25,9 +26,13 @@ pub(crate) mod nextest;
 pub(crate) use detect::detect_cargo;
 pub(crate) use errors::CargoError;
 use nextest::NextestSource;
+use nextest::archive_in_store_path;
 use nextest::nextest_list;
 use nextest::nextest_run_one;
 use nextest::prepare_archive;
+
+use crate::managers::nix::ArchiveError;
+use crate::managers::nix::NixBuilder;
 
 fn manager_identity() -> api::TestManager {
     api::WellKnownTestManager::Cargo.into()
@@ -134,18 +139,28 @@ fn workspace_root(manifest_path: &str) -> String {
     }
 }
 
+/// Scheme marking a `nextest_archive` value as a Nix installable to resolve via
+/// the nix manager, rather than a literal filesystem path.
+const NIX_SCHEME: &str = "nix://";
+
 pub(crate) struct CargoManager {
     manifest_path: String,
     nextest: Option<bool>,
     nextest_archive: Option<String>,
+    /// Shared handle for resolving a `nix://` archive. Present exactly when the
+    /// nix manager is active for this run — which is the manager that reports a
+    /// `nix://` build's pass/fail — so a `nix://` archive with no builder is a
+    /// misconfiguration.
+    nix_builder: Option<Arc<NixBuilder>>,
     /// The execution backend, resolved on first use rather than at
-    /// construction. Staging an archive is fallible (and, for a `nix://`
-    /// source in a later change, does real work), so it belongs in `discover`'s
-    /// error path — which the run loop reports — not in a constructor that
-    /// would have to abort the whole runner. `run` reuses whatever `discover`
-    /// resolved, so the resolution (and its `cargo nextest`/staging side
-    /// effects) happens exactly once.
-    backend: OnceCell<CargoBackend>,
+    /// construction. Staging an archive — and building a `nix://` one — is
+    /// fallible and does real work, so it belongs in `discover`'s error path
+    /// (which the run loop reports), not a constructor that would abort the
+    /// whole runner. `run` reuses whatever `discover` resolved, so resolution
+    /// (and its side effects) happens exactly once. `None` means a tracked
+    /// `nix://` build failed: discover nothing and let the nix manager report
+    /// the failure.
+    backend: OnceCell<Option<CargoBackend>>,
 }
 
 impl CargoManager {
@@ -159,39 +174,77 @@ impl CargoManager {
         manifest_path: String,
         nextest: Option<bool>,
         nextest_archive: Option<String>,
+        nix_builder: Option<Arc<NixBuilder>>,
     ) -> Self {
         Self {
             manifest_path,
             nextest,
             nextest_archive,
+            nix_builder,
             backend: OnceCell::new(),
         }
     }
 
-    /// Resolves the execution backend once and caches it. An archive is staged
-    /// here — lazily — so a bad archive surfaces as a discovery error the run
-    /// loop can report, rather than aborting construction. Repeated calls (from
-    /// `discover` then `run`) reuse the first result and never re-stage.
-    async fn backend(&self) -> Result<&CargoBackend, CargoError> {
+    /// Resolves the execution backend once and caches it. `Ok(Some(_))` is a
+    /// usable backend; `Ok(None)` means a tracked `nix://` build failed, so we
+    /// discover nothing and leave the report to the nix manager; `Err` is a
+    /// misconfiguration (bad archive, untracked `nix://`, …) the run loop
+    /// surfaces as a discovery error. Repeated calls reuse the first result.
+    async fn backend(&self) -> Result<Option<&CargoBackend>, CargoError> {
         self.backend
-            .get_or_try_init(|| async {
-                match self.nextest_archive.as_deref() {
-                    Some(path) => {
-                        if !detect::detect_nextest() {
-                            return Err(CargoError::NextestArchiveNoNextest);
-                        }
-                        let source =
-                            prepare_archive(path, workspace_root(&self.manifest_path)).await?;
-                        Ok(CargoBackend::Nextest(source))
-                    }
-                    None => Ok(decide_backend(
-                        self.nextest,
-                        detect::detect_nextest(),
-                        &self.manifest_path,
-                    )),
-                }
-            })
+            .get_or_try_init(|| self.resolve_backend())
             .await
+            .map(Option::as_ref)
+    }
+
+    async fn resolve_backend(&self) -> Result<Option<CargoBackend>, CargoError> {
+        let Some(spec) = self.nextest_archive.as_deref() else {
+            return Ok(Some(decide_backend(
+                self.nextest,
+                detect::detect_nextest(),
+                &self.manifest_path,
+            )));
+        };
+
+        // A `nix://` archive needs the nix manager active — it's what reports
+        // the build's pass/fail. Bind the builder up front (a pure config
+        // check, no PATH probe) so this misconfiguration is surfaced clearly.
+        let nix = match spec.strip_prefix(NIX_SCHEME) {
+            Some(installable) => Some((
+                installable,
+                self.nix_builder
+                    .as_ref()
+                    .ok_or(CargoError::NixArchiveNoNixManager)?,
+            )),
+            None => None,
+        };
+
+        if !detect::detect_nextest() {
+            return Err(CargoError::NextestArchiveNoNextest);
+        }
+
+        // Resolve the spec to a concrete on-disk archive. A `nix://` spec is
+        // built through the nix manager's handle so that manager owns the
+        // build's pass/fail; a literal path is used as-is.
+        let archive_path = match nix {
+            Some((installable, builder)) => match builder.resolve_archive(installable).await {
+                Ok(out) => archive_in_store_path(&out)?,
+                // Tracked but its build failed: the nix manager reports it.
+                Err(ArchiveError::BuildFailed) => return Ok(None),
+                Err(ArchiveError::Untracked(installable)) => {
+                    return Err(CargoError::NixArchiveUntracked { installable });
+                }
+                Err(ArchiveError::Eval(e)) => {
+                    return Err(CargoError::NixArchiveEval {
+                        reason: e.to_string(),
+                    });
+                }
+            },
+            None => spec.to_string(),
+        };
+
+        let source = prepare_archive(&archive_path, workspace_root(&self.manifest_path)).await?;
+        Ok(Some(CargoBackend::Nextest(source)))
     }
 }
 
@@ -204,8 +257,11 @@ impl TestManager for CargoManager {
     async fn discover(&self) -> Result<Vec<Test>, anyhow::Error> {
         // Resolve the backend first so a broken archive fails fast — before we
         // spend a `cargo metadata` call — and surfaces as this manager's
-        // discovery error.
-        let backend = self.backend().await?;
+        // discovery error. `None` means a tracked `nix://` build failed: the
+        // nix manager reports that, so cargo discovers nothing here.
+        let Some(backend) = self.backend().await? else {
+            return Ok(Vec::new());
+        };
 
         let metadata = discover_metadata(&self.manifest_path).await?;
 
@@ -248,13 +304,17 @@ impl TestManager for CargoManager {
         let (tx, rx) = mpsc::channel::<TestEvent>(1);
         let manifest_path = self.manifest_path.clone();
 
-        // `discover` resolves and caches the backend before any `run`, so this
-        // is a cached hit. Stay defensive rather than panic if that invariant
-        // ever breaks: surface it as a per-test failure.
+        // `discover` resolves and caches the backend before any `run`, and only
+        // hands back tests when it produced a usable backend — so this is a
+        // cached `Some`. Stay defensive rather than panic if that ever breaks:
+        // surface it as a per-test failure.
         let backend = match self.backend().await {
-            Ok(backend) => backend.clone(),
-            Err(e) => {
-                let reason = format!("cargo backend unavailable: {}", e);
+            Ok(Some(backend)) => backend.clone(),
+            other => {
+                let reason = match other {
+                    Err(e) => format!("cargo backend unavailable: {}", e),
+                    _ => "cargo backend unavailable".to_string(),
+                };
                 tokio::spawn(async move {
                     for test in tests {
                         let _ = tx
@@ -614,6 +674,7 @@ mod tests {
             "Cargo.toml".to_string(),
             None,
             Some(MISSING_ARCHIVE.to_string()),
+            None,
         );
         assert!(
             manager.backend.get().is_none(),
@@ -630,12 +691,35 @@ mod tests {
             "Cargo.toml".to_string(),
             None,
             Some(MISSING_ARCHIVE.to_string()),
+            None,
         );
         let err = manager
             .discover()
             .await
             .expect_err("an unstageable archive must be a discovery error");
         assert!(!err.to_string().is_empty());
+    }
+
+    #[tokio::test]
+    async fn nix_archive_without_nix_manager_is_a_discovery_error() {
+        // A `nix://` archive depends on the nix manager (which reports the
+        // build). With no builder wired in, that's a misconfiguration surfaced
+        // at discovery — deterministically, before any `cargo-nextest`/Nix
+        // probe, so the test doesn't depend on the environment.
+        let manager = CargoManager::new(
+            "Cargo.toml".to_string(),
+            None,
+            Some("nix://.#ci.x86_64-linux.archive".to_string()),
+            None,
+        );
+        let err = manager
+            .discover()
+            .await
+            .expect_err("nix:// without the nix manager must be a discovery error");
+        assert!(
+            err.to_string().contains("nix manager"),
+            "unexpected error: {err}"
+        );
     }
 
     #[tokio::test]
@@ -648,6 +732,7 @@ mod tests {
             "Cargo.toml".to_string(),
             None,
             Some(MISSING_ARCHIVE.to_string()),
+            None,
         );
         let test = unit_test("pkg", "some_test".to_string());
         let name = test.name.clone();

@@ -328,7 +328,7 @@ fn new_instance(now: SystemTime) -> Instance {
     }
 }
 
-fn failure_message_from(stderr: &str) -> String {
+pub(crate) fn failure_message_from(stderr: &str) -> String {
     for line in stderr.lines() {
         let trimmed = line.trim();
         if !trimmed.is_empty() {

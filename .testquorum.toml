@@ -1,12 +1,12 @@
 [managers.nix]
 attrset = "ci"
 
-# Dogfood the cargo backend's prebuilt-archive mode: CI builds the workspace's
-# nextest archive with Nix and stages it at this path (see the "Prepare nextest
-# archive" CI step), so tests are discovered and run from it rather than
-# recompiled locally.
+# Dogfood the cargo backend's prebuilt-archive mode: the runner builds the
+# workspace's nextest archive straight from this flake output (per-system, so
+# ${SYSTEM} is expanded to the current Nix system), so tests are discovered and
+# run from the reproducible Nix build rather than recompiled locally.
 [managers.cargo]
-nextest_archive = "/tmp/archive.tar.zst"
+nextest_archive = "nix://.#ci.${SYSTEM}.testquorum-nextest-archive"
 
 [cloud]
 required = true

@@ -101,12 +101,20 @@ fn check_target_from_env() -> Option<CheckTarget> {
     })
 }
 
+/// Build outcomes already known at discovery time (a tracked `nix://` archive
+/// build that a cargo dependency triggered and that failed), keyed by
+/// `(test_name, manager)` with the failure's stderr. These are submitted as
+/// terminal `Failed` in the same pre-rank batch as the `Discovered` docs, so
+/// `/rank` — which may move an un-run test to `Skipped` — leaves them failed.
+pub(crate) type PreFailed = HashMap<(String, TestManager), String>;
+
 pub(crate) async fn attempt(
     client: Client,
     repo_id: String,
     run: Run,
     tests: &[Test],
     cfg: &testquorum_config::Cloud,
+    pre_failed: &PreFailed,
 ) -> Result<RankedRun, RankerError> {
     // Step 1: create the group with a GitHub Actions workflow run check target
     // when running inside GitHub Actions so the test group result is published
@@ -129,29 +137,8 @@ pub(crate) async fn attempt(
     // here (rather than reading them back from the response) means the
     // uploader can stitch later transitions onto the same record without an
     // extra lookup.
-    let now = SystemTime::now();
-    let now_epoch: EpochSecs = now.into();
-    let mut instances: HashMap<(String, TestManager), (Uuid, EpochSecs)> =
-        HashMap::with_capacity(tests.len());
-    let mut docs: Vec<TestResultDoc> = Vec::with_capacity(tests.len());
-    for test in tests {
-        let id = Uuid::now_v7();
-        instances.insert(
-            (test.name.clone(), test.manager.clone()),
-            (id, now_epoch.clone()),
-        );
-        docs.push(TestResultDoc {
-            id,
-            rank: None,
-            run: run.clone(),
-            state: TestState::Discovered {
-                discovered_at: now_epoch.clone(),
-            },
-            test_group: Some(group_id),
-            test_manager: Some(test.manager.clone()),
-            test_name: test.name.clone(),
-        });
-    }
+    let now: EpochSecs = SystemTime::now().into();
+    let (docs, instances) = build_submission_docs(tests, pre_failed, &run, group_id, &now);
 
     // Step 3: submit the Discovered batch in server-sized chunks.
     for chunk in docs.chunks(SUBMIT_CHUNK) {
@@ -191,6 +178,55 @@ pub(crate) async fn attempt(
         },
         pages,
     })
+}
+
+/// The id and mint time assigned to each test, so the uploader can stitch later
+/// transitions onto the same record without re-reading it.
+type Instances = HashMap<(String, TestManager), (Uuid, EpochSecs)>;
+
+/// Builds the pre-rank submission batch. Every test is `Discovered`, except
+/// those in `pre_failed`, which are created straight as terminal `Failed` so
+/// `/rank` — which may move an un-run test to `Skipped` — leaves them failed.
+/// UUIDs are minted here (rather than read back) so the uploader can stitch
+/// later transitions onto the same record.
+fn build_submission_docs(
+    tests: &[Test],
+    pre_failed: &PreFailed,
+    run: &Run,
+    group_id: Uuid,
+    now: &EpochSecs,
+) -> (Vec<TestResultDoc>, Instances) {
+    let mut instances = Instances::with_capacity(tests.len());
+    let mut docs = Vec::with_capacity(tests.len());
+    for test in tests {
+        let id = Uuid::now_v7();
+        let key = (test.name.clone(), test.manager.clone());
+        instances.insert(key.clone(), (id, now.clone()));
+        let state = match pre_failed.get(&key) {
+            Some(stderr) => TestState::Failed {
+                discovered_at: now.clone(),
+                started_at: now.clone(),
+                finished_at: now.clone(),
+                duration_ms: 0,
+                failure_message: crate::uploader::failure_message_from(stderr),
+                stderr: stderr.clone(),
+                stdout: None,
+            },
+            None => TestState::Discovered {
+                discovered_at: now.clone(),
+            },
+        };
+        docs.push(TestResultDoc {
+            id,
+            rank: None,
+            run: run.clone(),
+            state,
+            test_group: Some(group_id),
+            test_manager: Some(test.manager.clone()),
+            test_name: test.name.clone(),
+        });
+    }
+    (docs, instances)
 }
 
 fn spawn_page_stream(
@@ -298,5 +334,70 @@ mod tests {
     fn ranker_error_display_for_other_passes_through() {
         let e = RankerError::Other("rank_test_group: 500 server error".to_string());
         assert_eq!(format!("{}", e), "rank_test_group: 500 server error");
+    }
+
+    use testquorum_api::types::Commit;
+    use testquorum_api::types::RunKind;
+    use testquorum_api::types::WellKnownTestManager;
+
+    use crate::Test;
+
+    fn test(name: &str, manager: WellKnownTestManager) -> Test {
+        Test {
+            name: name.to_string(),
+            manager: manager.into(),
+            payload: serde_json::Value::Null,
+        }
+    }
+
+    #[test]
+    fn pre_failed_tests_submit_terminal_before_rank() {
+        let run = Run {
+            head: Commit {
+                sha: "a".to_string(),
+                height: 1,
+            },
+            kind: RunKind::Diff {
+                merge_base: Commit {
+                    sha: "b".to_string(),
+                    height: 0,
+                },
+            },
+        };
+        let tests = vec![
+            test("archive", WellKnownTestManager::Nix),
+            test("pkg::unit", WellKnownTestManager::Cargo),
+        ];
+        let mut pre_failed = PreFailed::new();
+        pre_failed.insert(
+            ("archive".to_string(), WellKnownTestManager::Nix.into()),
+            "boom: build failed".to_string(),
+        );
+
+        let now: EpochSecs = SystemTime::now().into();
+        let (docs, instances) =
+            build_submission_docs(&tests, &pre_failed, &run, Uuid::now_v7(), &now);
+
+        // The pre-failed test is created straight as terminal Failed — so a
+        // later `/rank` can't move it to Skipped — carrying its stderr.
+        let archive = docs.iter().find(|d| d.test_name == "archive").unwrap();
+        match &archive.state {
+            TestState::Failed {
+                stderr,
+                failure_message,
+                ..
+            } => {
+                assert_eq!(stderr, "boom: build failed");
+                assert_eq!(failure_message, "boom: build failed");
+            }
+            other => panic!("expected terminal Failed, got {:?}", other),
+        }
+
+        // Everything else stays Discovered for ranking.
+        let unit = docs.iter().find(|d| d.test_name == "pkg::unit").unwrap();
+        assert!(matches!(unit.state, TestState::Discovered { .. }));
+
+        // Every test — failed or not — is minted for later stitching.
+        assert_eq!(instances.len(), 2);
     }
 }

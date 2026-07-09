@@ -17,9 +17,13 @@ use crate::TestEvent;
 use crate::TestManager;
 use crate::TestOutcome;
 
+pub(crate) mod builder;
 pub(crate) mod detect;
 pub(crate) mod errors;
 
+pub(crate) use builder::ArchiveError;
+pub(crate) use builder::NixBuilder;
+pub(crate) use builder::PreFailed;
 pub(crate) use detect::detect_nix;
 pub(crate) use errors::NixError;
 
