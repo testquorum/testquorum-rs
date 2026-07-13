@@ -13,6 +13,7 @@ use crate::Environment;
 use crate::ManagerRegistry;
 use crate::NixManager;
 use crate::NpmManager;
+use crate::RspecManager;
 use crate::RunContext;
 use crate::Test;
 use crate::TestEvent;
@@ -22,6 +23,7 @@ use crate::detect_cargo;
 use crate::detect_environment;
 use crate::detect_nix;
 use crate::detect_npm;
+use crate::detect_rspec;
 use crate::detect_treefmt;
 use crate::managers::nix::NixBuilder;
 use crate::managers::nix::PreFailed;
@@ -177,6 +179,7 @@ fn default_config() -> testquorum_config::Config {
             nix: None,
             cargo: None,
             npm: None,
+            rspec: None,
             treefmt: None,
         },
         cloud: testquorum_config::Cloud::default(),
@@ -250,6 +253,22 @@ fn build_registry(
                 registry.register(Box::new(NpmManager::new(package_json_path)));
             }
             Err(e) => eprintln!("warning: npm detection failed: {}", e),
+        }
+    }
+
+    let rspec_config = config.managers.rspec.as_ref();
+    let rspec_enabled = rspec_config.map(|c| c.enabled).unwrap_or(true);
+    let rspec_gemfile = rspec_config.and_then(|c| c.gemfile_path.as_deref());
+
+    if config.managers.autodetect
+        && rspec_enabled
+        && (rspec_gemfile.is_some() || std::path::Path::new("Gemfile").exists())
+    {
+        match detect_rspec(rspec_gemfile) {
+            Ok(gemfile_path) => {
+                registry.register(Box::new(RspecManager::new(gemfile_path)));
+            }
+            Err(e) => eprintln!("warning: rspec detection failed: {}", e),
         }
     }
 
