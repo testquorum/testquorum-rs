@@ -1,21 +1,21 @@
 use super::GoError;
 
 pub(crate) fn detect_go(go_mod_path: Option<&str>) -> Result<String, GoError> {
-    which::which("go").map_err(|_| GoError::GoNotFound)?;
+    which::which("go").map_err(|_| GoError::NotFound)?;
 
     let output = std::process::Command::new("go")
         .arg("version")
         .output()
-        .map_err(|_| GoError::GoNotFound)?;
+        .map_err(|_| GoError::NotFound)?;
 
     let version_str = String::from_utf8_lossy(&output.stdout);
-    let version = parse_version(&version_str).ok_or_else(|| GoError::GoTooOld {
+    let version = parse_version(&version_str).ok_or_else(|| GoError::TooOld {
         minimum: "1.21".to_string(),
         found: version_str.trim().to_string(),
     })?;
 
     if version < (1, 21) {
-        return Err(GoError::GoTooOld {
+        return Err(GoError::TooOld {
             minimum: "1.21".to_string(),
             found: format!("{}.{}", version.0, version.1),
         });
@@ -23,7 +23,7 @@ pub(crate) fn detect_go(go_mod_path: Option<&str>) -> Result<String, GoError> {
 
     let resolved = go_mod_path.unwrap_or("go.mod");
     if !std::path::Path::new(resolved).exists() {
-        return Err(GoError::GoModNotFound {
+        return Err(GoError::ModNotFound {
             path: resolved.to_string(),
         });
     }
