@@ -15,6 +15,7 @@ pub struct Managers {
     pub nix: Option<NixConfig>,
     pub cargo: Option<CargoConfig>,
     pub npm: Option<NpmConfig>,
+    pub dotnet: Option<DotnetConfig>,
     pub treefmt: Option<TreefmtConfig>,
 }
 
@@ -24,6 +25,7 @@ fn default_managers() -> Managers {
         nix: None,
         cargo: None,
         npm: None,
+        dotnet: None,
         treefmt: None,
     }
 }
@@ -107,6 +109,14 @@ pub struct NpmConfig {
     pub enabled: bool,
     #[serde(default)]
     pub package_json_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct DotnetConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub project_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -366,6 +376,55 @@ autodetect = true
     }
 
     #[test]
+    fn test_dotnet_config() {
+        let toml = r#"
+[managers]
+autodetect = true
+
+[managers.dotnet]
+enabled = true
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(
+            config.managers.dotnet,
+            Some(DotnetConfig {
+                enabled: true,
+                project_path: None,
+            })
+        );
+    }
+
+    #[test]
+    fn test_dotnet_project_path() {
+        let toml = r#"
+[managers]
+autodetect = true
+
+[managers.dotnet]
+enabled = true
+project_path = "MyApp.sln"
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(
+            config.managers.dotnet,
+            Some(DotnetConfig {
+                enabled: true,
+                project_path: Some("MyApp.sln".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn test_dotnet_default_when_omitted() {
+        let toml = r#"
+[managers]
+autodetect = true
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(config.managers.dotnet, None);
+    }
+
+    #[test]
     fn test_treefmt_config_enabled() {
         let toml = r#"
 [managers]
@@ -448,6 +507,7 @@ max_wait_seconds = 30
                 }),
                 cargo: None,
                 npm: None,
+                dotnet: None,
                 treefmt: None,
             },
             cloud: Cloud::default(),
