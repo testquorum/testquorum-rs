@@ -15,6 +15,7 @@ pub struct Managers {
     pub nix: Option<NixConfig>,
     pub cargo: Option<CargoConfig>,
     pub npm: Option<NpmConfig>,
+    pub pytest: Option<PytestConfig>,
     pub treefmt: Option<TreefmtConfig>,
 }
 
@@ -24,6 +25,7 @@ fn default_managers() -> Managers {
         nix: None,
         cargo: None,
         npm: None,
+        pytest: None,
         treefmt: None,
     }
 }
@@ -107,6 +109,14 @@ pub struct NpmConfig {
     pub enabled: bool,
     #[serde(default)]
     pub package_json_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct PytestConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub config_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -412,6 +422,55 @@ autodetect = true
     }
 
     #[test]
+    fn test_pytest_config() {
+        let toml = r#"
+[managers]
+autodetect = true
+
+[managers.pytest]
+enabled = true
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(
+            config.managers.pytest,
+            Some(PytestConfig {
+                enabled: true,
+                config_path: None,
+            })
+        );
+    }
+
+    #[test]
+    fn test_pytest_config_path() {
+        let toml = r#"
+[managers]
+autodetect = true
+
+[managers.pytest]
+enabled = true
+config_path = "backend/pyproject.toml"
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(
+            config.managers.pytest,
+            Some(PytestConfig {
+                enabled: true,
+                config_path: Some("backend/pyproject.toml".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn test_pytest_default_when_omitted() {
+        let toml = r#"
+[managers]
+autodetect = true
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(config.managers.pytest, None);
+    }
+
+    #[test]
     fn test_invalid_toml() {
         let result = from_str("not valid toml {{{");
         assert!(result.is_err());
@@ -448,6 +507,7 @@ max_wait_seconds = 30
                 }),
                 cargo: None,
                 npm: None,
+                pytest: None,
                 treefmt: None,
             },
             cloud: Cloud::default(),

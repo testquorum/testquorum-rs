@@ -13,6 +13,7 @@ use crate::Environment;
 use crate::ManagerRegistry;
 use crate::NixManager;
 use crate::NpmManager;
+use crate::PytestManager;
 use crate::RunContext;
 use crate::Test;
 use crate::TestEvent;
@@ -22,6 +23,7 @@ use crate::detect_cargo;
 use crate::detect_environment;
 use crate::detect_nix;
 use crate::detect_npm;
+use crate::detect_pytest;
 use crate::detect_treefmt;
 use crate::managers::nix::NixBuilder;
 use crate::managers::nix::PreFailed;
@@ -177,6 +179,7 @@ fn default_config() -> testquorum_config::Config {
             nix: None,
             cargo: None,
             npm: None,
+            pytest: None,
             treefmt: None,
         },
         cloud: testquorum_config::Cloud::default(),
@@ -250,6 +253,25 @@ fn build_registry(
                 registry.register(Box::new(NpmManager::new(package_json_path)));
             }
             Err(e) => eprintln!("warning: npm detection failed: {}", e),
+        }
+    }
+
+    let pytest_config = config.managers.pytest.as_ref();
+    let pytest_enabled = pytest_config.map(|c| c.enabled).unwrap_or(true);
+    let pytest_path = pytest_config.and_then(|c| c.config_path.as_deref());
+
+    if config.managers.autodetect
+        && pytest_enabled
+        && (pytest_path.is_some()
+            || ["pyproject.toml", "setup.py", "setup.cfg"]
+                .iter()
+                .any(|f| std::path::Path::new(f).exists()))
+    {
+        match detect_pytest(pytest_path) {
+            Ok(config_path) => {
+                registry.register(Box::new(PytestManager::new(config_path)));
+            }
+            Err(e) => eprintln!("warning: pytest detection failed: {}", e),
         }
     }
 
