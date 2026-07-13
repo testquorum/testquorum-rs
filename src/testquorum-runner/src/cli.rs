@@ -9,6 +9,7 @@ use testquorum_api::Client;
 use testquorum_api::types::TestManager;
 
 use crate::CargoManager;
+use crate::DotnetManager;
 use crate::Environment;
 use crate::ManagerRegistry;
 use crate::NixManager;
@@ -19,6 +20,7 @@ use crate::TestEvent;
 use crate::TreefmtManager;
 use crate::config::find_config_file;
 use crate::detect_cargo;
+use crate::detect_dotnet;
 use crate::detect_environment;
 use crate::detect_nix;
 use crate::detect_npm;
@@ -177,6 +179,7 @@ fn default_config() -> testquorum_config::Config {
             nix: None,
             cargo: None,
             npm: None,
+            dotnet: None,
             treefmt: None,
         },
         cloud: testquorum_config::Cloud::default(),
@@ -250,6 +253,30 @@ fn build_registry(
                 registry.register(Box::new(NpmManager::new(package_json_path)));
             }
             Err(e) => eprintln!("warning: npm detection failed: {}", e),
+        }
+    }
+
+    let dotnet_config = config.managers.dotnet.as_ref();
+    let dotnet_enabled = dotnet_config.map(|c| c.enabled).unwrap_or(true);
+    let dotnet_project = dotnet_config.and_then(|c| c.project_path.as_deref());
+
+    let has_dotnet_project = dotnet_project.is_some()
+        || std::fs::read_dir(".")
+            .map(|entries| {
+                entries.filter_map(|e| e.ok()).any(|e| {
+                    let n = e.file_name();
+                    let s = n.to_string_lossy();
+                    s.ends_with(".sln") || s.ends_with(".csproj")
+                })
+            })
+            .unwrap_or(false);
+
+    if config.managers.autodetect && dotnet_enabled && has_dotnet_project {
+        match detect_dotnet(dotnet_project) {
+            Ok(project_path) => {
+                registry.register(Box::new(DotnetManager::new(project_path)));
+            }
+            Err(e) => eprintln!("warning: dotnet detection failed: {}", e),
         }
     }
 
