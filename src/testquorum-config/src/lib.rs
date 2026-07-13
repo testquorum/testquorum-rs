@@ -15,6 +15,7 @@ pub struct Managers {
     pub nix: Option<NixConfig>,
     pub cargo: Option<CargoConfig>,
     pub npm: Option<NpmConfig>,
+    pub rspec: Option<RspecConfig>,
     pub treefmt: Option<TreefmtConfig>,
 }
 
@@ -24,6 +25,7 @@ fn default_managers() -> Managers {
         nix: None,
         cargo: None,
         npm: None,
+        rspec: None,
         treefmt: None,
     }
 }
@@ -107,6 +109,14 @@ pub struct NpmConfig {
     pub enabled: bool,
     #[serde(default)]
     pub package_json_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct RspecConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub gemfile_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -366,6 +376,55 @@ autodetect = true
     }
 
     #[test]
+    fn test_rspec_config() {
+        let toml = r#"
+[managers]
+autodetect = true
+
+[managers.rspec]
+enabled = true
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(
+            config.managers.rspec,
+            Some(RspecConfig {
+                enabled: true,
+                gemfile_path: None,
+            })
+        );
+    }
+
+    #[test]
+    fn test_rspec_gemfile_path() {
+        let toml = r#"
+[managers]
+autodetect = true
+
+[managers.rspec]
+enabled = true
+gemfile_path = "backend/Gemfile"
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(
+            config.managers.rspec,
+            Some(RspecConfig {
+                enabled: true,
+                gemfile_path: Some("backend/Gemfile".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn test_rspec_default_when_omitted() {
+        let toml = r#"
+[managers]
+autodetect = true
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(config.managers.rspec, None);
+    }
+
+    #[test]
     fn test_treefmt_config_enabled() {
         let toml = r#"
 [managers]
@@ -448,6 +507,7 @@ max_wait_seconds = 30
                 }),
                 cargo: None,
                 npm: None,
+                rspec: None,
                 treefmt: None,
             },
             cloud: Cloud::default(),
