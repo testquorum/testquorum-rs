@@ -9,6 +9,7 @@ use testquorum_api::Client;
 use testquorum_api::types::TestManager;
 
 use crate::CargoManager;
+use crate::ComposerManager;
 use crate::Environment;
 use crate::ManagerRegistry;
 use crate::NixManager;
@@ -19,6 +20,7 @@ use crate::TestEvent;
 use crate::TreefmtManager;
 use crate::config::find_config_file;
 use crate::detect_cargo;
+use crate::detect_composer;
 use crate::detect_environment;
 use crate::detect_nix;
 use crate::detect_npm;
@@ -177,6 +179,7 @@ fn default_config() -> testquorum_config::Config {
             nix: None,
             cargo: None,
             npm: None,
+            composer: None,
             treefmt: None,
         },
         cloud: testquorum_config::Cloud::default(),
@@ -250,6 +253,22 @@ fn build_registry(
                 registry.register(Box::new(NpmManager::new(package_json_path)));
             }
             Err(e) => eprintln!("warning: npm detection failed: {}", e),
+        }
+    }
+
+    let composer_config = config.managers.composer.as_ref();
+    let composer_enabled = composer_config.map(|c| c.enabled).unwrap_or(true);
+    let composer_json = composer_config.and_then(|c| c.composer_json_path.as_deref());
+
+    if config.managers.autodetect
+        && composer_enabled
+        && (composer_json.is_some() || std::path::Path::new("composer.json").exists())
+    {
+        match detect_composer(composer_json) {
+            Ok(composer_json_path) => {
+                registry.register(Box::new(ComposerManager::new(composer_json_path)));
+            }
+            Err(e) => eprintln!("warning: composer detection failed: {}", e),
         }
     }
 
