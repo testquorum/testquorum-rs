@@ -15,6 +15,7 @@ pub struct Managers {
     pub nix: Option<NixConfig>,
     pub cargo: Option<CargoConfig>,
     pub npm: Option<NpmConfig>,
+    pub swift: Option<SwiftConfig>,
     pub treefmt: Option<TreefmtConfig>,
 }
 
@@ -24,6 +25,7 @@ fn default_managers() -> Managers {
         nix: None,
         cargo: None,
         npm: None,
+        swift: None,
         treefmt: None,
     }
 }
@@ -107,6 +109,14 @@ pub struct NpmConfig {
     pub enabled: bool,
     #[serde(default)]
     pub package_json_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct SwiftConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub package_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -412,6 +422,55 @@ autodetect = true
     }
 
     #[test]
+    fn test_swift_config() {
+        let toml = r#"
+[managers]
+autodetect = true
+
+[managers.swift]
+enabled = true
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(
+            config.managers.swift,
+            Some(SwiftConfig {
+                enabled: true,
+                package_path: None,
+            })
+        );
+    }
+
+    #[test]
+    fn test_swift_package_path() {
+        let toml = r#"
+[managers]
+autodetect = true
+
+[managers.swift]
+enabled = true
+package_path = "MyPackage/Package.swift"
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(
+            config.managers.swift,
+            Some(SwiftConfig {
+                enabled: true,
+                package_path: Some("MyPackage/Package.swift".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn test_swift_default_when_omitted() {
+        let toml = r#"
+[managers]
+autodetect = true
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(config.managers.swift, None);
+    }
+
+    #[test]
     fn test_invalid_toml() {
         let result = from_str("not valid toml {{{");
         assert!(result.is_err());
@@ -448,6 +507,7 @@ max_wait_seconds = 30
                 }),
                 cargo: None,
                 npm: None,
+                swift: None,
                 treefmt: None,
             },
             cloud: Cloud::default(),

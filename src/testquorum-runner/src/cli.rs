@@ -14,6 +14,7 @@ use crate::ManagerRegistry;
 use crate::NixManager;
 use crate::NpmManager;
 use crate::RunContext;
+use crate::SwiftManager;
 use crate::Test;
 use crate::TestEvent;
 use crate::TreefmtManager;
@@ -22,6 +23,7 @@ use crate::detect_cargo;
 use crate::detect_environment;
 use crate::detect_nix;
 use crate::detect_npm;
+use crate::detect_swift;
 use crate::detect_treefmt;
 use crate::managers::nix::NixBuilder;
 use crate::managers::nix::PreFailed;
@@ -177,6 +179,7 @@ fn default_config() -> testquorum_config::Config {
             nix: None,
             cargo: None,
             npm: None,
+            swift: None,
             treefmt: None,
         },
         cloud: testquorum_config::Cloud::default(),
@@ -250,6 +253,22 @@ fn build_registry(
                 registry.register(Box::new(NpmManager::new(package_json_path)));
             }
             Err(e) => eprintln!("warning: npm detection failed: {}", e),
+        }
+    }
+
+    let swift_config = config.managers.swift.as_ref();
+    let swift_enabled = swift_config.map(|c| c.enabled).unwrap_or(true);
+    let swift_package = swift_config.and_then(|c| c.package_path.as_deref());
+
+    if config.managers.autodetect
+        && swift_enabled
+        && (swift_package.is_some() || std::path::Path::new("Package.swift").exists())
+    {
+        match detect_swift(swift_package) {
+            Ok(package_path) => {
+                registry.register(Box::new(SwiftManager::new(package_path)));
+            }
+            Err(e) => eprintln!("warning: swift detection failed: {}", e),
         }
     }
 
