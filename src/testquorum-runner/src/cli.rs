@@ -10,8 +10,8 @@ use testquorum_api::types::TestManager;
 
 use crate::CargoManager;
 use crate::Environment;
-use crate::MavenManager;
 use crate::ManagerRegistry;
+use crate::MavenManager;
 use crate::NixManager;
 use crate::NpmManager;
 use crate::RunContext;

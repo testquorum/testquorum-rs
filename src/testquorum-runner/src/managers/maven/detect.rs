@@ -76,10 +76,7 @@ mod tests {
 
     #[test]
     fn parse_version_legacy_8() {
-        assert_eq!(
-            parse_version("java version \"1.8.0_392\"\n..."),
-            Some(8)
-        );
+        assert_eq!(parse_version("java version \"1.8.0_392\"\n..."), Some(8));
     }
 
     #[test]
