@@ -11,6 +11,7 @@ use testquorum_api::types::TestManager;
 use crate::CargoManager;
 use crate::Environment;
 use crate::ManagerRegistry;
+use crate::MavenManager;
 use crate::NixManager;
 use crate::NpmManager;
 use crate::RunContext;
@@ -20,6 +21,7 @@ use crate::TreefmtManager;
 use crate::config::find_config_file;
 use crate::detect_cargo;
 use crate::detect_environment;
+use crate::detect_maven;
 use crate::detect_nix;
 use crate::detect_npm;
 use crate::detect_treefmt;
@@ -177,6 +179,7 @@ fn default_config() -> testquorum_config::Config {
             nix: None,
             cargo: None,
             npm: None,
+            maven: None,
             treefmt: None,
         },
         cloud: testquorum_config::Cloud::default(),
@@ -250,6 +253,22 @@ fn build_registry(
                 registry.register(Box::new(NpmManager::new(package_json_path)));
             }
             Err(e) => eprintln!("warning: npm detection failed: {}", e),
+        }
+    }
+
+    let maven_config = config.managers.maven.as_ref();
+    let maven_enabled = maven_config.map(|c| c.enabled).unwrap_or(true);
+    let maven_pom = maven_config.and_then(|c| c.pom_path.as_deref());
+
+    if config.managers.autodetect
+        && maven_enabled
+        && (maven_pom.is_some() || std::path::Path::new("pom.xml").exists())
+    {
+        match detect_maven(maven_pom) {
+            Ok(pom_path) => {
+                registry.register(Box::new(MavenManager::new(pom_path)));
+            }
+            Err(e) => eprintln!("warning: maven detection failed: {}", e),
         }
     }
 
