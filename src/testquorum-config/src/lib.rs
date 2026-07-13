@@ -15,6 +15,7 @@ pub struct Managers {
     pub nix: Option<NixConfig>,
     pub cargo: Option<CargoConfig>,
     pub npm: Option<NpmConfig>,
+    pub composer: Option<ComposerConfig>,
     pub treefmt: Option<TreefmtConfig>,
 }
 
@@ -24,6 +25,7 @@ fn default_managers() -> Managers {
         nix: None,
         cargo: None,
         npm: None,
+        composer: None,
         treefmt: None,
     }
 }
@@ -107,6 +109,14 @@ pub struct NpmConfig {
     pub enabled: bool,
     #[serde(default)]
     pub package_json_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct ComposerConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub composer_json_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -448,6 +458,7 @@ max_wait_seconds = 30
                 }),
                 cargo: None,
                 npm: None,
+                composer: None,
                 treefmt: None,
             },
             cloud: Cloud::default(),
@@ -462,5 +473,54 @@ attrset = "checks"
 "#;
         let config2 = from_str(toml).unwrap();
         assert_eq!(config1, config2);
+    }
+
+    #[test]
+    fn test_composer_config() {
+        let toml = r#"
+[managers]
+autodetect = true
+
+[managers.composer]
+enabled = true
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(
+            config.managers.composer,
+            Some(ComposerConfig {
+                enabled: true,
+                composer_json_path: None,
+            })
+        );
+    }
+
+    #[test]
+    fn test_composer_json_path() {
+        let toml = r#"
+[managers]
+autodetect = true
+
+[managers.composer]
+enabled = true
+composer_json_path = "backend/composer.json"
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(
+            config.managers.composer,
+            Some(ComposerConfig {
+                enabled: true,
+                composer_json_path: Some("backend/composer.json".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn test_composer_default_when_omitted() {
+        let toml = r#"
+[managers]
+autodetect = true
+"#;
+        let config = from_str(toml).unwrap();
+        assert_eq!(config.managers.composer, None);
     }
 }
