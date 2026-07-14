@@ -13,6 +13,7 @@ use crate::Environment;
 use crate::ManagerRegistry;
 use crate::NixManager;
 use crate::NpmManager;
+use crate::OcamlManager;
 use crate::RunContext;
 use crate::Test;
 use crate::TestEvent;
@@ -22,6 +23,7 @@ use crate::detect_cargo;
 use crate::detect_environment;
 use crate::detect_nix;
 use crate::detect_npm;
+use crate::detect_ocaml;
 use crate::detect_treefmt;
 use crate::managers::nix::NixBuilder;
 use crate::managers::nix::PreFailed;
@@ -177,6 +179,7 @@ fn default_config() -> testquorum_config::Config {
             nix: None,
             cargo: None,
             npm: None,
+            ocaml: None,
             treefmt: None,
         },
         cloud: testquorum_config::Cloud::default(),
@@ -250,6 +253,24 @@ fn build_registry(
                 registry.register(Box::new(NpmManager::new(package_json_path)));
             }
             Err(e) => eprintln!("warning: npm detection failed: {}", e),
+        }
+    }
+
+    let ocaml_config = config.managers.ocaml.as_ref();
+    let ocaml_enabled = ocaml_config.map(|c| c.enabled).unwrap_or(true);
+    let ocaml_path = ocaml_config.and_then(|c| c.dune_project_path.as_deref());
+
+    // Gate autodetect on dune-project existing (like nix gates on flake.nix)
+    // unless an explicit path is configured, in which case let detect_ocaml report the error.
+    if config.managers.autodetect
+        && ocaml_enabled
+        && (ocaml_path.is_some() || std::path::Path::new("dune-project").exists())
+    {
+        match detect_ocaml(ocaml_path) {
+            Ok(dune_project_path) => {
+                registry.register(Box::new(OcamlManager::new(dune_project_path)));
+            }
+            Err(e) => eprintln!("warning: ocaml detection failed: {}", e),
         }
     }
 

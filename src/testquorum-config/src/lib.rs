@@ -15,6 +15,7 @@ pub struct Managers {
     pub nix: Option<NixConfig>,
     pub cargo: Option<CargoConfig>,
     pub npm: Option<NpmConfig>,
+    pub ocaml: Option<OcamlConfig>,
     pub treefmt: Option<TreefmtConfig>,
 }
 
@@ -24,6 +25,7 @@ fn default_managers() -> Managers {
         nix: None,
         cargo: None,
         npm: None,
+        ocaml: None,
         treefmt: None,
     }
 }
@@ -107,6 +109,13 @@ pub struct NpmConfig {
     pub enabled: bool,
     #[serde(default)]
     pub package_json_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct OcamlConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    pub dune_project_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -448,6 +457,7 @@ max_wait_seconds = 30
                 }),
                 cargo: None,
                 npm: None,
+                ocaml: None,
                 treefmt: None,
             },
             cloud: Cloud::default(),
