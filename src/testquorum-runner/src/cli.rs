@@ -14,6 +14,7 @@ use crate::ManagerRegistry;
 use crate::NixManager;
 use crate::NpmManager;
 use crate::RunContext;
+use crate::SbtManager;
 use crate::Test;
 use crate::TestEvent;
 use crate::TreefmtManager;
@@ -22,6 +23,7 @@ use crate::detect_cargo;
 use crate::detect_environment;
 use crate::detect_nix;
 use crate::detect_npm;
+use crate::detect_sbt;
 use crate::detect_treefmt;
 use crate::managers::nix::NixBuilder;
 use crate::managers::nix::PreFailed;
@@ -177,6 +179,7 @@ fn default_config() -> testquorum_config::Config {
             nix: None,
             cargo: None,
             npm: None,
+            sbt: None,
             treefmt: None,
         },
         cloud: testquorum_config::Cloud::default(),
@@ -250,6 +253,24 @@ fn build_registry(
                 registry.register(Box::new(NpmManager::new(package_json_path)));
             }
             Err(e) => eprintln!("warning: npm detection failed: {}", e),
+        }
+    }
+
+    let sbt_config = config.managers.sbt.as_ref();
+    let sbt_enabled = sbt_config.map(|c| c.enabled).unwrap_or(true);
+    let sbt_path = sbt_config.and_then(|c| c.build_sbt_path.as_deref());
+
+    // Gate autodetect on build.sbt existing (like nix gates on flake.nix)
+    // unless an explicit path is configured, in which case let detect_sbt report the error.
+    if config.managers.autodetect
+        && sbt_enabled
+        && (sbt_path.is_some() || std::path::Path::new("build.sbt").exists())
+    {
+        match detect_sbt(sbt_path) {
+            Ok(build_sbt_path) => {
+                registry.register(Box::new(SbtManager::new(build_sbt_path)));
+            }
+            Err(e) => eprintln!("warning: sbt detection failed: {}", e),
         }
     }
 

@@ -16,6 +16,7 @@ pub(crate) use environments::detect_environment;
 pub(crate) use managers::CargoManager;
 pub(crate) use managers::NixManager;
 pub(crate) use managers::NpmManager;
+pub(crate) use managers::SbtManager;
 pub(crate) use managers::Test;
 pub(crate) use managers::TestEvent;
 pub(crate) use managers::TestManager;
@@ -24,6 +25,7 @@ pub(crate) use managers::TreefmtManager;
 pub(crate) use managers::detect_cargo;
 pub(crate) use managers::detect_nix;
 pub(crate) use managers::detect_npm;
+pub(crate) use managers::detect_sbt;
 pub(crate) use managers::detect_treefmt;
 pub(crate) use registry::ManagerRegistry;
 

@@ -9,6 +9,7 @@ use testquorum_api::types as api;
 pub(crate) mod cargo;
 pub(crate) mod nix;
 pub(crate) mod npm;
+pub(crate) mod sbt;
 pub(crate) mod treefmt;
 
 pub(crate) use cargo::CargoManager;
@@ -17,6 +18,8 @@ pub(crate) use nix::NixManager;
 pub(crate) use nix::detect_nix;
 pub(crate) use npm::NpmManager;
 pub(crate) use npm::detect_npm;
+pub(crate) use sbt::SbtManager;
+pub(crate) use sbt::detect_sbt;
 pub(crate) use treefmt::TreefmtManager;
 pub(crate) use treefmt::detect_treefmt;
 
