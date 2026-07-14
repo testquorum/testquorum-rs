@@ -10,6 +10,7 @@ use testquorum_api::types::TestManager;
 
 use crate::CargoManager;
 use crate::Environment;
+use crate::GoManager;
 use crate::ManagerRegistry;
 use crate::NixManager;
 use crate::NpmManager;
@@ -20,6 +21,7 @@ use crate::TreefmtManager;
 use crate::config::find_config_file;
 use crate::detect_cargo;
 use crate::detect_environment;
+use crate::detect_go;
 use crate::detect_nix;
 use crate::detect_npm;
 use crate::detect_treefmt;
@@ -177,6 +179,7 @@ fn default_config() -> testquorum_config::Config {
             nix: None,
             cargo: None,
             npm: None,
+            go: None,
             treefmt: None,
         },
         cloud: testquorum_config::Cloud::default(),
@@ -250,6 +253,22 @@ fn build_registry(
                 registry.register(Box::new(NpmManager::new(package_json_path)));
             }
             Err(e) => eprintln!("warning: npm detection failed: {}", e),
+        }
+    }
+
+    let go_config = config.managers.go.as_ref();
+    let go_enabled = go_config.map(|c| c.enabled).unwrap_or(true);
+    let go_mod_path = go_config.and_then(|c| c.go_mod_path.as_deref());
+
+    if config.managers.autodetect
+        && go_enabled
+        && (go_mod_path.is_some() || std::path::Path::new("go.mod").exists())
+    {
+        match detect_go(go_mod_path) {
+            Ok(go_mod_path) => {
+                registry.register(Box::new(GoManager::new(go_mod_path)));
+            }
+            Err(e) => eprintln!("warning: go detection failed: {}", e),
         }
     }
 
