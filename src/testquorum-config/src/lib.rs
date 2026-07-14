@@ -457,6 +457,7 @@ max_wait_seconds = 30
                     attrset: "checks".to_string(),
                 }),
                 cargo: None,
+                elixir: None,
                 npm: None,
                 treefmt: None,
             },
