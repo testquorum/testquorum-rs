@@ -12,6 +12,7 @@ pub struct Config {
 pub struct Managers {
     #[serde(default = "default_true")]
     pub autodetect: bool,
+    pub cmake: Option<CmakeConfig>,
     pub nix: Option<NixConfig>,
     pub cargo: Option<CargoConfig>,
     pub npm: Option<NpmConfig>,
@@ -21,11 +22,20 @@ pub struct Managers {
 fn default_managers() -> Managers {
     Managers {
         autodetect: true,
+        cmake: None,
         nix: None,
         cargo: None,
         npm: None,
         treefmt: None,
     }
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct CmakeConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub cmake_lists_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -442,6 +452,7 @@ max_wait_seconds = 30
         let config1 = Config {
             managers: Managers {
                 autodetect: true,
+                cmake: None,
                 nix: Some(NixConfig {
                     enabled: true,
                     attrset: "checks".to_string(),
