@@ -10,6 +10,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::time::Duration;
+use std::time::Instant;
 use std::time::SystemTime;
 
 use reqwest::StatusCode;
@@ -141,6 +142,7 @@ pub(crate) async fn attempt(
     let (docs, instances) = build_submission_docs(tests, pre_failed, &run, group_id, &now);
 
     // Step 3: submit the Discovered batch in server-sized chunks.
+    let upload_start = Instant::now();
     for chunk in docs.chunks(SUBMIT_CHUNK) {
         let req = SubmitTestResultsRequest {
             results: chunk.to_vec(),
@@ -152,15 +154,22 @@ pub(crate) async fn attempt(
             }
         }
     }
+    println!(
+        "uploaded {} test(s) in {}ms",
+        docs.len(),
+        upload_start.elapsed().as_millis()
+    );
 
     // Step 4: ask the server to stamp ranks.
     let group_str = group_id.to_string();
+    let rank_start = Instant::now();
     loop {
         match client.rank_test_group(&repo_id, &group_str).await {
             Ok(_) => break,
             Err(e) => handle_429(cfg, "rank_test_group", e).await?,
         }
     }
+    println!("ranked in {}ms", rank_start.elapsed().as_millis());
 
     // Step 5: build the lookup the page fetcher needs to map ranked entries
     // back to runnable `Test`s, then spawn the prefetcher.
