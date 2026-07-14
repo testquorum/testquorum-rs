@@ -7,5 +7,5 @@ pub(crate) enum KotlinError {
     #[error("./gradlew not found — is this a Gradle project?")]
     GradlewNotFound,
     #[error("build.gradle.kts (or build.gradle) not found at {path}")]
-    BuildFileNotFound { path: String },
+    BuildFileMissing { path: String },
 }

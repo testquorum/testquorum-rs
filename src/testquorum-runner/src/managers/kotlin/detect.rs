@@ -9,7 +9,7 @@ pub(crate) fn detect_kotlin(build_file_path: Option<&str>) -> Result<String, Kot
 
     if let Some(path) = build_file_path {
         if !std::path::Path::new(path).exists() {
-            return Err(KotlinError::BuildFileNotFound {
+            return Err(KotlinError::BuildFileMissing {
                 path: path.to_string(),
             });
         }
@@ -24,7 +24,7 @@ pub(crate) fn detect_kotlin(build_file_path: Option<&str>) -> Result<String, Kot
         return Ok("build.gradle".to_string());
     }
 
-    Err(KotlinError::BuildFileNotFound {
+    Err(KotlinError::BuildFileMissing {
         path: "build.gradle.kts".to_string(),
     })
 }
