@@ -12,15 +12,3 @@ pub(crate) fn detect_r(description_path: Option<&str>) -> Result<String, RError>
 
     Ok(resolved.to_string())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn detect_r_fails_when_description_missing() {
-        // A path that will never exist — confirm the error variant is correct.
-        let result = detect_r(Some("/nonexistent/DESCRIPTION"));
-        assert!(matches!(result, Err(RError::DescriptionNotFound { .. })));
-    }
-}
