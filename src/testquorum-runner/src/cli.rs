@@ -9,6 +9,7 @@ use testquorum_api::Client;
 use testquorum_api::types::TestManager;
 
 use crate::CargoManager;
+use crate::CmakeManager;
 use crate::Environment;
 use crate::ManagerRegistry;
 use crate::NixManager;
@@ -19,6 +20,7 @@ use crate::TestEvent;
 use crate::TreefmtManager;
 use crate::config::find_config_file;
 use crate::detect_cargo;
+use crate::detect_cmake;
 use crate::detect_environment;
 use crate::detect_nix;
 use crate::detect_npm;
@@ -174,6 +176,7 @@ fn default_config() -> testquorum_config::Config {
     testquorum_config::Config {
         managers: testquorum_config::Managers {
             autodetect: true,
+            cmake: None,
             nix: None,
             cargo: None,
             npm: None,
@@ -250,6 +253,24 @@ fn build_registry(
                 registry.register(Box::new(NpmManager::new(package_json_path)));
             }
             Err(e) => eprintln!("warning: npm detection failed: {}", e),
+        }
+    }
+
+    let cmake_config = config.managers.cmake.as_ref();
+    let cmake_enabled = cmake_config.map(|c| c.enabled).unwrap_or(true);
+    let cmake_path = cmake_config.and_then(|c| c.cmake_lists_path.as_deref());
+
+    // Gate autodetect on CMakeLists.txt existing (like nix gates on flake.nix)
+    // unless an explicit path is configured, in which case let detect_cmake report the error.
+    if config.managers.autodetect
+        && cmake_enabled
+        && (cmake_path.is_some() || std::path::Path::new("CMakeLists.txt").exists())
+    {
+        match detect_cmake(cmake_path) {
+            Ok(cmake_lists_path) => {
+                registry.register(Box::new(CmakeManager::new(cmake_lists_path)));
+            }
+            Err(e) => eprintln!("warning: cmake detection failed: {}", e),
         }
     }
 
