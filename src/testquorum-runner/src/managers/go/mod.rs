@@ -118,6 +118,7 @@ async fn go_test(go_mod_path: &str) -> (bool, String) {
     let module_dir = std::path::Path::new(go_mod_path)
         .parent()
         .and_then(|p| p.to_str())
+        .filter(|s| !s.is_empty())
         .unwrap_or(".");
 
     let output = Command::new("go")
