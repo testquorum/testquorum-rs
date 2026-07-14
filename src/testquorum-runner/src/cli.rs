@@ -9,6 +9,7 @@ use testquorum_api::Client;
 use testquorum_api::types::TestManager;
 
 use crate::CargoManager;
+use crate::DartManager;
 use crate::Environment;
 use crate::ManagerRegistry;
 use crate::NixManager;
@@ -19,6 +20,7 @@ use crate::TestEvent;
 use crate::TreefmtManager;
 use crate::config::find_config_file;
 use crate::detect_cargo;
+use crate::detect_dart;
 use crate::detect_environment;
 use crate::detect_nix;
 use crate::detect_npm;
@@ -174,8 +176,9 @@ fn default_config() -> testquorum_config::Config {
     testquorum_config::Config {
         managers: testquorum_config::Managers {
             autodetect: true,
-            nix: None,
             cargo: None,
+            dart: None,
+            nix: None,
             npm: None,
             treefmt: None,
         },
@@ -250,6 +253,23 @@ fn build_registry(
                 registry.register(Box::new(NpmManager::new(package_json_path)));
             }
             Err(e) => eprintln!("warning: npm detection failed: {}", e),
+        }
+    }
+
+    let dart_config = config.managers.dart.as_ref();
+    let dart_enabled = dart_config.map(|c| c.enabled).unwrap_or(true);
+    let dart_pubspec = dart_config.and_then(|c| c.pubspec_path.as_deref());
+
+    // Gate autodetect on pubspec.yaml existing unless an explicit path is configured.
+    if config.managers.autodetect
+        && dart_enabled
+        && (dart_pubspec.is_some() || std::path::Path::new("pubspec.yaml").exists())
+    {
+        match detect_dart(dart_pubspec) {
+            Ok(pubspec_path) => {
+                registry.register(Box::new(DartManager::new(pubspec_path)));
+            }
+            Err(e) => eprintln!("warning: dart detection failed: {}", e),
         }
     }
 
