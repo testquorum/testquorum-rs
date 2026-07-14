@@ -9,6 +9,7 @@ use testquorum_api::Client;
 use testquorum_api::types::TestManager;
 
 use crate::CargoManager;
+use crate::ElixirManager;
 use crate::Environment;
 use crate::ManagerRegistry;
 use crate::NixManager;
@@ -19,6 +20,7 @@ use crate::TestEvent;
 use crate::TreefmtManager;
 use crate::config::find_config_file;
 use crate::detect_cargo;
+use crate::detect_elixir;
 use crate::detect_environment;
 use crate::detect_nix;
 use crate::detect_npm;
@@ -174,8 +176,9 @@ fn default_config() -> testquorum_config::Config {
     testquorum_config::Config {
         managers: testquorum_config::Managers {
             autodetect: true,
-            nix: None,
             cargo: None,
+            elixir: None,
+            nix: None,
             npm: None,
             treefmt: None,
         },
@@ -250,6 +253,22 @@ fn build_registry(
                 registry.register(Box::new(NpmManager::new(package_json_path)));
             }
             Err(e) => eprintln!("warning: npm detection failed: {}", e),
+        }
+    }
+
+    let elixir_config = config.managers.elixir.as_ref();
+    let elixir_enabled = elixir_config.map(|c| c.enabled).unwrap_or(true);
+    let elixir_path = elixir_config.and_then(|c| c.mix_exs_path.as_deref());
+
+    if config.managers.autodetect
+        && elixir_enabled
+        && (elixir_path.is_some() || std::path::Path::new("mix.exs").exists())
+    {
+        match detect_elixir(elixir_path) {
+            Ok(mix_exs_path) => {
+                registry.register(Box::new(ElixirManager::new(mix_exs_path)));
+            }
+            Err(e) => eprintln!("warning: elixir detection failed: {}", e),
         }
     }
 
