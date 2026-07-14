@@ -12,8 +12,9 @@ pub struct Config {
 pub struct Managers {
     #[serde(default = "default_true")]
     pub autodetect: bool,
-    pub nix: Option<NixConfig>,
     pub cargo: Option<CargoConfig>,
+    pub elixir: Option<ElixirConfig>,
+    pub nix: Option<NixConfig>,
     pub npm: Option<NpmConfig>,
     pub treefmt: Option<TreefmtConfig>,
 }
@@ -21,8 +22,9 @@ pub struct Managers {
 fn default_managers() -> Managers {
     Managers {
         autodetect: true,
-        nix: None,
         cargo: None,
+        elixir: None,
+        nix: None,
         npm: None,
         treefmt: None,
     }
@@ -99,6 +101,14 @@ impl Default for Cloud {
 
 fn default_max_wait_seconds() -> u64 {
     10
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct ElixirConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub mix_exs_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
