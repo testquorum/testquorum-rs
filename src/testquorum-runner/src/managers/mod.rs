@@ -7,12 +7,15 @@ use serde::Serialize;
 use testquorum_api::types as api;
 
 pub(crate) mod cargo;
+pub(crate) mod kotlin;
 pub(crate) mod nix;
 pub(crate) mod npm;
 pub(crate) mod treefmt;
 
 pub(crate) use cargo::CargoManager;
 pub(crate) use cargo::detect_cargo;
+pub(crate) use kotlin::KotlinManager;
+pub(crate) use kotlin::detect_kotlin;
 pub(crate) use nix::NixManager;
 pub(crate) use nix::detect_nix;
 pub(crate) use npm::NpmManager;

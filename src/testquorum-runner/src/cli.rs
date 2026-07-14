@@ -10,6 +10,7 @@ use testquorum_api::types::TestManager;
 
 use crate::CargoManager;
 use crate::Environment;
+use crate::KotlinManager;
 use crate::ManagerRegistry;
 use crate::NixManager;
 use crate::NpmManager;
@@ -20,6 +21,7 @@ use crate::TreefmtManager;
 use crate::config::find_config_file;
 use crate::detect_cargo;
 use crate::detect_environment;
+use crate::detect_kotlin;
 use crate::detect_nix;
 use crate::detect_npm;
 use crate::detect_treefmt;
@@ -174,8 +176,9 @@ fn default_config() -> testquorum_config::Config {
     testquorum_config::Config {
         managers: testquorum_config::Managers {
             autodetect: true,
-            nix: None,
             cargo: None,
+            kotlin: None,
+            nix: None,
             npm: None,
             treefmt: None,
         },
@@ -232,6 +235,26 @@ fn build_registry(
                 )));
             }
             Err(e) => eprintln!("warning: cargo detection failed: {}", e),
+        }
+    }
+
+    let kotlin_config = config.managers.kotlin.as_ref();
+    let kotlin_enabled = kotlin_config.map(|c| c.enabled).unwrap_or(true);
+    let kotlin_path = kotlin_config.and_then(|c| c.build_file_path.as_deref());
+
+    // Gate autodetect on build.gradle.kts or build.gradle existing unless an
+    // explicit path is configured, in which case let detect_kotlin report the error.
+    if config.managers.autodetect
+        && kotlin_enabled
+        && (kotlin_path.is_some()
+            || std::path::Path::new("build.gradle.kts").exists()
+            || std::path::Path::new("build.gradle").exists())
+    {
+        match detect_kotlin(kotlin_path) {
+            Ok(build_file_path) => {
+                registry.register(Box::new(KotlinManager::new(build_file_path)));
+            }
+            Err(e) => eprintln!("warning: kotlin detection failed: {}", e),
         }
     }
 

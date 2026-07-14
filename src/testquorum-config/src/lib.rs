@@ -12,8 +12,9 @@ pub struct Config {
 pub struct Managers {
     #[serde(default = "default_true")]
     pub autodetect: bool,
-    pub nix: Option<NixConfig>,
     pub cargo: Option<CargoConfig>,
+    pub kotlin: Option<KotlinConfig>,
+    pub nix: Option<NixConfig>,
     pub npm: Option<NpmConfig>,
     pub treefmt: Option<TreefmtConfig>,
 }
@@ -21,8 +22,9 @@ pub struct Managers {
 fn default_managers() -> Managers {
     Managers {
         autodetect: true,
-        nix: None,
         cargo: None,
+        kotlin: None,
+        nix: None,
         npm: None,
         treefmt: None,
     }
@@ -99,6 +101,13 @@ impl Default for Cloud {
 
 fn default_max_wait_seconds() -> u64 {
     10
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct KotlinConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    pub build_file_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -442,11 +451,12 @@ max_wait_seconds = 30
         let config1 = Config {
             managers: Managers {
                 autodetect: true,
+                cargo: None,
+                kotlin: None,
                 nix: Some(NixConfig {
                     enabled: true,
                     attrset: "checks".to_string(),
                 }),
-                cargo: None,
                 npm: None,
                 treefmt: None,
             },
