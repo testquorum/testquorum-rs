@@ -13,6 +13,7 @@ use crate::Environment;
 use crate::ManagerRegistry;
 use crate::NixManager;
 use crate::NpmManager;
+use crate::RManager;
 use crate::RunContext;
 use crate::Test;
 use crate::TestEvent;
@@ -22,6 +23,7 @@ use crate::detect_cargo;
 use crate::detect_environment;
 use crate::detect_nix;
 use crate::detect_npm;
+use crate::detect_r;
 use crate::detect_treefmt;
 use crate::managers::nix::NixBuilder;
 use crate::managers::nix::PreFailed;
@@ -177,6 +179,7 @@ fn default_config() -> testquorum_config::Config {
             nix: None,
             cargo: None,
             npm: None,
+            r: None,
             treefmt: None,
         },
         cloud: testquorum_config::Cloud::default(),
@@ -250,6 +253,24 @@ fn build_registry(
                 registry.register(Box::new(NpmManager::new(package_json_path)));
             }
             Err(e) => eprintln!("warning: npm detection failed: {}", e),
+        }
+    }
+
+    let r_config = config.managers.r.as_ref();
+    let r_enabled = r_config.map(|c| c.enabled).unwrap_or(true);
+    let r_description_path = r_config.and_then(|c| c.description_path.as_deref());
+
+    // Gate autodetect on DESCRIPTION existing (like nix gates on flake.nix)
+    // unless an explicit path is configured, in which case let detect_r report the error.
+    if config.managers.autodetect
+        && r_enabled
+        && (r_description_path.is_some() || std::path::Path::new("DESCRIPTION").exists())
+    {
+        match detect_r(r_description_path) {
+            Ok(description_path) => {
+                registry.register(Box::new(RManager::new(description_path)));
+            }
+            Err(e) => eprintln!("warning: r detection failed: {}", e),
         }
     }
 

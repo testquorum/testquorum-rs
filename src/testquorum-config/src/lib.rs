@@ -15,6 +15,7 @@ pub struct Managers {
     pub nix: Option<NixConfig>,
     pub cargo: Option<CargoConfig>,
     pub npm: Option<NpmConfig>,
+    pub r: Option<RConfig>,
     pub treefmt: Option<TreefmtConfig>,
 }
 
@@ -24,6 +25,7 @@ fn default_managers() -> Managers {
         nix: None,
         cargo: None,
         npm: None,
+        r: None,
         treefmt: None,
     }
 }
@@ -107,6 +109,14 @@ pub struct NpmConfig {
     pub enabled: bool,
     #[serde(default)]
     pub package_json_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct RConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub description_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -448,6 +458,7 @@ max_wait_seconds = 30
                 }),
                 cargo: None,
                 npm: None,
+                r: None,
                 treefmt: None,
             },
             cloud: Cloud::default(),
