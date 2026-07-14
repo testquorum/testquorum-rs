@@ -458,6 +458,7 @@ max_wait_seconds = 30
                 }),
                 cargo: None,
                 npm: None,
+                sbt: None,
                 treefmt: None,
             },
             cloud: Cloud::default(),
