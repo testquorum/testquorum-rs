@@ -9,6 +9,7 @@ use testquorum_api::types as api;
 pub(crate) mod cargo;
 pub(crate) mod nix;
 pub(crate) mod npm;
+pub(crate) mod ocaml;
 pub(crate) mod treefmt;
 
 pub(crate) use cargo::CargoManager;
@@ -17,6 +18,8 @@ pub(crate) use nix::NixManager;
 pub(crate) use nix::detect_nix;
 pub(crate) use npm::NpmManager;
 pub(crate) use npm::detect_npm;
+pub(crate) use ocaml::OcamlManager;
+pub(crate) use ocaml::detect_ocaml;
 pub(crate) use treefmt::TreefmtManager;
 pub(crate) use treefmt::detect_treefmt;
 
