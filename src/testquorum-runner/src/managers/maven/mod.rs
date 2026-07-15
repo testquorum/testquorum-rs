@@ -118,6 +118,7 @@ async fn mvn_test(pom_path: &str) -> (bool, String) {
     let working_dir = std::path::Path::new(pom_path)
         .parent()
         .and_then(|p| p.to_str())
+        .filter(|s| !s.is_empty())
         .unwrap_or(".");
 
     let output = Command::new("mvn")
