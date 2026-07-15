@@ -118,6 +118,7 @@ async fn sbt_test(build_sbt_path: &str) -> (bool, String) {
     let dir = std::path::Path::new(build_sbt_path)
         .parent()
         .and_then(|p| p.to_str())
+        .filter(|s| !s.is_empty())
         .unwrap_or(".");
 
     let output = Command::new("sbt")
