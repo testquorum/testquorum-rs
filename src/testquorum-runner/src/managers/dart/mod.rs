@@ -118,6 +118,7 @@ async fn dart_test(pubspec_path: &str) -> (bool, String) {
     let dir = std::path::Path::new(pubspec_path)
         .parent()
         .and_then(|p| p.to_str())
+        .filter(|s| !s.is_empty())
         .unwrap_or(".");
 
     // First: dart pub get
