@@ -118,6 +118,7 @@ async fn pytest_run(config_path: &str) -> (bool, String) {
     let root = std::path::Path::new(config_path)
         .parent()
         .and_then(|p| p.to_str())
+        .filter(|s| !s.is_empty())
         .unwrap_or(".");
 
     let output = Command::new("python3")
