@@ -118,6 +118,7 @@ async fn r_testthat(description_path: &str) -> (bool, String) {
     let dir = std::path::Path::new(description_path)
         .parent()
         .and_then(|p| p.to_str())
+        .filter(|s| !s.is_empty())
         .unwrap_or(".");
 
     let output = Command::new("Rscript")
