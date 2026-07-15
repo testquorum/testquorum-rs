@@ -117,6 +117,7 @@ async fn composer_test(composer_json_path: &str) -> (bool, String) {
     let workdir = std::path::Path::new(composer_json_path)
         .parent()
         .and_then(|p| p.to_str())
+        .filter(|s| !s.is_empty())
         .unwrap_or(".");
 
     let output = Command::new("composer")
