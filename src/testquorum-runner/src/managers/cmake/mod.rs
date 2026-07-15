@@ -118,6 +118,7 @@ async fn cmake_build_and_test(cmake_lists_path: &str) -> (bool, String) {
     let source_dir = std::path::Path::new(cmake_lists_path)
         .parent()
         .and_then(|p| p.to_str())
+        .filter(|s| !s.is_empty())
         .unwrap_or(".");
 
     let build_dir = format!("{}/build", source_dir);
