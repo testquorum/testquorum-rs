@@ -118,6 +118,7 @@ async fn mix_test(mix_exs_path: &str) -> (bool, String) {
     let project_dir = std::path::Path::new(mix_exs_path)
         .parent()
         .and_then(|p| p.to_str())
+        .filter(|s| !s.is_empty())
         .unwrap_or(".");
 
     let output = Command::new("mix")
