@@ -53,7 +53,7 @@ mod tests {
     fn parse_version_standard() {
         assert_eq!(
             parse_version("Apple Swift version 5.5.2 (swiftlang-...)"),
-            Some((5, 9))
+            Some((5, 5))
         );
     }
 
