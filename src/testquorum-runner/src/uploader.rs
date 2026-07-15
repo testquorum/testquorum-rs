@@ -23,6 +23,8 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tokio::time::MissedTickBehavior;
+use tracing::error;
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::TestEvent;
@@ -91,7 +93,7 @@ impl Uploader {
     pub(crate) async fn shutdown(self) {
         drop(self.tx);
         if let Err(e) = self.handle.await {
-            eprintln!("uploader task ended abnormally: {}", e);
+            error!("uploader task ended abnormally: {}", e);
         }
     }
 }
@@ -181,21 +183,21 @@ async fn flush(client: &Client, repo_id: &str, buffer: &mut Vec<TestResultDoc>) 
             Ok(_) => return true,
             Err(e) => match classify(&e) {
                 Disposition::Disable(reason) => {
-                    eprintln!("upload disabled: {}", reason);
+                    error!("upload disabled: {}", reason);
                     return false;
                 }
                 Disposition::Warn(reason) => {
-                    eprintln!("upload warning: {}", reason);
+                    warn!("upload warning: {}", reason);
                     return true;
                 }
                 Disposition::Retry(reason) => {
-                    eprintln!("upload transient error, retrying: {}", reason);
+                    warn!("upload transient error, retrying: {}", reason);
                     continue;
                 }
             },
         }
     }
-    eprintln!("upload batch dropped after exhausting retries");
+    error!("upload batch dropped after exhausting retries");
     true
 }
 

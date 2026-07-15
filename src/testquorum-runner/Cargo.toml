@@ -26,3 +26,5 @@ sha2 = "0.10"
 uuid = { version = "1", features = ["v7"] }
 git2 = { version = "0.20", default-features = false }
 tempfile = "3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

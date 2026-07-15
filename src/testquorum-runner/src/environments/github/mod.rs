@@ -14,6 +14,7 @@ use testquorum_api::types::InitiateRequest;
 use testquorum_api::types::Run;
 use testquorum_api::types::RunKind;
 use testquorum_api::types::Trigger;
+use tracing::warn;
 
 use super::Environment;
 use super::RunContext;
@@ -61,14 +62,14 @@ impl Environment for GitHubEnvironment {
         let repo_source_id = match std::env::var("GITHUB_REPOSITORY_ID") {
             Ok(v) if !v.is_empty() => v,
             _ => {
-                eprintln!("upload skipped: GITHUB_REPOSITORY_ID is not set");
+                warn!("upload skipped: GITHUB_REPOSITORY_ID is not set");
                 return Ok(None);
             }
         };
         let head_sha = match std::env::var("GITHUB_SHA") {
             Ok(v) if !v.is_empty() => v,
             _ => {
-                eprintln!("upload skipped: GITHUB_SHA is not set");
+                warn!("upload skipped: GITHUB_SHA is not set");
                 return Ok(None);
             }
         };
@@ -94,7 +95,7 @@ impl Environment for GitHubEnvironment {
         let run = match run {
             BuildRunOutcome::Ok(run) => run,
             BuildRunOutcome::Skip(reason) => {
-                eprintln!("upload skipped: {}", reason);
+                warn!("upload skipped: {}", reason);
                 return Ok(None);
             }
         };

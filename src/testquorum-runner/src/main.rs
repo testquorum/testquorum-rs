@@ -31,13 +31,29 @@ pub(crate) use registry::ManagerRegistry;
 
 #[tokio::main]
 async fn main() {
+    init_tracing();
     match run_cli().await {
         Ok(RunResult::Success) => {}
         Ok(RunResult::TestsFailed) => std::process::exit(1),
         Ok(RunResult::Error) => std::process::exit(2),
         Err(e) => {
-            eprintln!("error: {}", e);
+            tracing::error!("{}", e);
             std::process::exit(2);
         }
     }
+}
+
+/// Sends all runner output through a minimal stderr subscriber: no timestamp or
+/// target, just the level and message so the test listing and result lines stay
+/// readable. `RUST_LOG` overrides the default `info` filter.
+fn init_tracing() {
+    use tracing_subscriber::EnvFilter;
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
+        .with_target(false)
+        .without_time()
+        .with_writer(std::io::stderr)
+        .init();
 }
