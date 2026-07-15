@@ -7,6 +7,9 @@ use futures::StreamExt;
 use rand::seq::SliceRandom;
 use testquorum_api::Client;
 use testquorum_api::types::TestManager;
+use tracing::error;
+use tracing::info;
+use tracing::warn;
 
 use crate::CargoManager;
 use crate::Environment;
@@ -72,7 +75,7 @@ pub(crate) async fn run_cli() -> Result<RunResult, anyhow::Error> {
         }
         Some(Commands::Run) | None => {
             let inputs = if cli.local {
-                println!("local mode: upload disabled");
+                info!("local mode: upload disabled");
                 None
             } else {
                 let env = detect_environment();
@@ -86,22 +89,22 @@ pub(crate) async fn run_cli() -> Result<RunResult, anyhow::Error> {
 async fn print_auth_banner(env: &dyn Environment) {
     match env.authenticated_client().await {
         Ok(None) => {
-            println!("unauthenticated (env: {})", env.name());
+            info!("unauthenticated (env: {})", env.name());
         }
         Ok(Some(client)) => match client.session_info().await {
             Ok(resp) => {
-                println!(
+                info!(
                     "authed as {} (env: {})",
                     resp.into_inner().display_name,
                     env.name()
                 );
             }
             Err(e) => {
-                println!("auth failed (env: {}): session lookup: {}", env.name(), e);
+                warn!("auth failed (env: {}): session lookup: {}", env.name(), e);
             }
         },
         Err(e) => {
-            println!("auth failed (env: {}): {}", env.name(), e);
+            warn!("auth failed (env: {}): {}", env.name(), e);
         }
     }
 }
@@ -114,39 +117,39 @@ async fn prepare_upload(env: &dyn Environment) -> Option<(Client, RunContext)> {
     let client = match env.authenticated_client().await {
         Ok(Some(c)) => c,
         Ok(None) => {
-            println!("unauthenticated (env: {})", env.name());
-            println!("upload disabled: no authenticated client");
+            info!("unauthenticated (env: {})", env.name());
+            info!("upload disabled: no authenticated client");
             return None;
         }
         Err(e) => {
-            println!("auth failed (env: {}): {}", env.name(), e);
-            println!("upload disabled: authentication error");
+            warn!("auth failed (env: {}): {}", env.name(), e);
+            warn!("upload disabled: authentication error");
             return None;
         }
     };
 
     match client.session_info().await {
-        Ok(resp) => println!(
+        Ok(resp) => info!(
             "authed as {} (env: {})",
             resp.into_inner().display_name,
             env.name()
         ),
-        Err(e) => println!("auth banner (env: {}): session lookup: {}", env.name(), e),
+        Err(e) => warn!("auth banner (env: {}): session lookup: {}", env.name(), e),
     }
 
     let ctx: RunContext = match env.run_context().await {
         Ok(Some(c)) => c,
         Ok(None) => {
-            println!("upload disabled: no run context for this invocation");
+            info!("upload disabled: no run context for this invocation");
             return None;
         }
         Err(e) => {
-            println!("upload disabled: run context error: {}", e);
+            warn!("upload disabled: run context error: {}", e);
             return None;
         }
     };
 
-    println!("uploading test state to {}", ctx.repo_id);
+    info!("uploading test state to {}", ctx.repo_id);
     Some((client, ctx))
 }
 
@@ -211,7 +214,7 @@ fn build_registry(
                 nix_builder = Some(Arc::new(NixBuilder::new(nix_attrset.clone())));
                 registry.register(Box::new(NixManager::new(nix_attrset)));
             }
-            Err(e) => eprintln!("warning: nix detection failed: {}", e),
+            Err(e) => warn!("nix detection failed: {}", e),
         }
     }
 
@@ -234,7 +237,7 @@ fn build_registry(
                     nix_builder.clone(),
                 )));
             }
-            Err(e) => eprintln!("warning: cargo detection failed: {}", e),
+            Err(e) => warn!("cargo detection failed: {}", e),
         }
     }
 
@@ -252,7 +255,7 @@ fn build_registry(
             Ok(package_json_path) => {
                 registry.register(Box::new(NpmManager::new(package_json_path)));
             }
-            Err(e) => eprintln!("warning: npm detection failed: {}", e),
+            Err(e) => warn!("npm detection failed: {}", e),
         }
     }
 
@@ -268,7 +271,7 @@ fn build_registry(
             Ok(go_mod_path) => {
                 registry.register(Box::new(GoManager::new(go_mod_path)));
             }
-            Err(e) => eprintln!("warning: go detection failed: {}", e),
+            Err(e) => warn!("go detection failed: {}", e),
         }
     }
 
@@ -278,7 +281,7 @@ fn build_registry(
     if config.managers.autodetect && treefmt_enabled != Some(false) {
         match detect_treefmt() {
             Ok(()) => registry.register(Box::new(TreefmtManager::new(treefmt_enabled))),
-            Err(e) => eprintln!("warning: treefmt detection failed: {}", e),
+            Err(e) => warn!("treefmt detection failed: {}", e),
         }
     }
 
@@ -293,20 +296,20 @@ async fn discover_only(registry: &ManagerRegistry) -> Result<RunResult, anyhow::
         match manager.discover().await {
             Ok(mut tests) => {
                 tests.sort_by(|a, b| a.name.cmp(&b.name));
-                println!("{}: {} test(s)", manager.identity(), tests.len());
+                info!("{}: {} test(s)", manager.identity(), tests.len());
                 for test in &tests {
-                    println!("  - {}", test.name);
+                    info!("  - {}", test.name);
                 }
                 total += tests.len();
             }
             Err(e) => {
-                eprintln!("error discovering from {}: {}", manager.identity(), e);
+                error!("error discovering from {}: {}", manager.identity(), e);
                 discovery_errors.push((manager.identity(), e.to_string()));
             }
         }
     }
 
-    println!("\nTotal: {} test(s)", total);
+    info!("Total: {} test(s)", total);
     report_discovery_errors(&discovery_errors);
 
     if discovery_errors.is_empty() {
@@ -324,9 +327,9 @@ fn report_discovery_errors(errors: &[(TestManager, String)]) {
     if errors.is_empty() {
         return;
     }
-    eprintln!("\n{} manager(s) failed to discover:", errors.len());
+    warn!("{} manager(s) failed to discover:", errors.len());
     for (manager, reason) in errors {
-        eprintln!("  - {}: {}", manager, reason);
+        warn!("  - {}: {}", manager, reason);
     }
 }
 
@@ -346,7 +349,7 @@ async fn discover_and_run(
         match manager.discover().await {
             Ok(tests) => all_tests.extend(tests),
             Err(e) => {
-                eprintln!("error discovering from {}: {}", manager.identity(), e);
+                error!("error discovering from {}: {}", manager.identity(), e);
                 discovery_errors.push((manager.identity(), e.to_string()));
             }
         }
@@ -358,7 +361,7 @@ async fn discover_and_run(
     let pre_failed: Vec<PreFailed> = nix_builder.map(|b| b.take_pre_failed()).unwrap_or_default();
 
     if all_tests.is_empty() && discovery_errors.is_empty() && pre_failed.is_empty() {
-        println!("no tests found");
+        info!("no tests found");
         return Ok(RunResult::Success);
     }
 
@@ -401,8 +404,8 @@ async fn discover_and_run(
                 continue;
             }
 
-            println!(
-                "\nrunning {} test(s) from {}...",
+            info!(
+                "running {} test(s) from {}...",
                 tests.len(),
                 manager.identity()
             );
@@ -426,7 +429,7 @@ async fn discover_and_run(
         u.shutdown().await;
     }
 
-    println!("\n{} passed, {} failed", total_passed, total_failed);
+    info!("{} passed, {} failed", total_passed, total_failed);
     report_discovery_errors(&discovery_errors);
 
     if !discovery_errors.is_empty() {
@@ -501,7 +504,7 @@ async fn prepare_run(
         .await
         {
             Ok(ranked) => {
-                println!(
+                info!(
                     "ranked run: group {} ({} tests submitted)",
                     ranked.group.group_id,
                     all_tests.len()
@@ -523,7 +526,7 @@ async fn prepare_run(
                         e
                     ));
                 }
-                println!("cloud unavailable ({}); using local random order", e);
+                warn!("cloud unavailable ({}); using local random order", e);
                 let uploader = Uploader::spawn(client, ctx);
                 // The local-random path relies on the uploader minting a UUID
                 // for each test the first time it sees a `Discovered` event,
@@ -570,18 +573,18 @@ fn render_event(event: &TestEvent) -> Transition {
     match event {
         TestEvent::Discovered { .. } => Transition::Discovered,
         TestEvent::Started { name, .. } => {
-            println!("  > {}", name);
+            info!("  > {}", name);
             Transition::Started
         }
         TestEvent::Finished { name, outcome, .. } if outcome.passed => {
-            println!("  PASS {} ({}ms)", name, outcome.duration_ms);
+            info!("  PASS {} ({}ms)", name, outcome.duration_ms);
             Transition::Passed
         }
         TestEvent::Finished { name, outcome, .. } => {
-            println!("  FAIL {} ({}ms)", name, outcome.duration_ms);
+            warn!("  FAIL {} ({}ms)", name, outcome.duration_ms);
             if !outcome.stderr.is_empty() {
                 for line in outcome.stderr.lines() {
-                    println!("    {}", line);
+                    warn!("    {}", line);
                 }
             }
             Transition::Failed

@@ -27,6 +27,9 @@ use testquorum_api::types::TestResultDoc;
 use testquorum_api::types::TestState;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
+use tracing::error;
+use tracing::info;
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::Test;
@@ -154,7 +157,7 @@ pub(crate) async fn attempt(
             }
         }
     }
-    println!(
+    info!(
         "uploaded {} test(s) in {}ms",
         docs.len(),
         upload_start.elapsed().as_millis()
@@ -169,7 +172,7 @@ pub(crate) async fn attempt(
             Err(e) => handle_429(cfg, "rank_test_group", e).await?,
         }
     }
-    println!("ranked in {}ms", rank_start.elapsed().as_millis());
+    info!("ranked in {}ms", rank_start.elapsed().as_millis());
 
     // Step 5: build the lookup the page fetcher needs to map ranked entries
     // back to runnable `Test`s, then spawn the prefetcher.
@@ -259,7 +262,7 @@ fn spawn_page_stream(
                     Err(e) => match handle_429(&cfg, "get_queue_page", e).await {
                         Ok(()) => continue,
                         Err(reason) => {
-                            eprintln!(
+                            error!(
                                 "ranking: queue stream aborted: {}; remaining ranked tests will not run",
                                 reason
                             );
@@ -308,7 +311,7 @@ async fn handle_429(
     if retry_after.as_secs() > cfg.max_wait_seconds {
         return Err(RankerError::RetryAfterTooLong(retry_after.as_secs()));
     }
-    eprintln!(
+    warn!(
         "ranking: {} rate limited, retrying in {}s",
         op_name,
         retry_after.as_secs()

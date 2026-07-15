@@ -13,6 +13,8 @@ use tokio::process::Command;
 use tokio::sync::OnceCell;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
+use tracing::info;
+use tracing::warn;
 
 use crate::Test;
 use crate::TestEvent;
@@ -119,13 +121,13 @@ fn decide_backend(nextest: Option<bool>, available: bool, manifest_path: &str) -
         })
     } else {
         if nextest == Some(true) {
-            eprintln!("warning: cargo nextest requested but not found on PATH; using `cargo test`");
+            warn!("cargo nextest requested but not found on PATH; using `cargo test`");
         }
         CargoBackend::CargoTest
     };
     // Announce the selected backend so a CI run can confirm which one drove the
     // tests — the two are otherwise indistinguishable in the output.
-    eprintln!("cargo: using {} backend", backend.name());
+    info!("cargo: using {} backend", backend.name());
     backend
 }
 
