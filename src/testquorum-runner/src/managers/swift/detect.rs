@@ -12,13 +12,13 @@ pub(crate) fn detect_swift(package_path: Option<&str>) -> Result<String, SwiftEr
         + &String::from_utf8_lossy(&output.stderr);
 
     let (major, minor) = parse_version(&version_str).ok_or_else(|| SwiftError::SwiftTooOld {
-        minimum: "5.9".to_string(),
+        minimum: "5.5".to_string(),
         found: version_str.trim().to_string(),
     })?;
 
-    if (major, minor) < (5, 9) {
+    if (major, minor) < (5, 5) {
         return Err(SwiftError::SwiftTooOld {
-            minimum: "5.9".to_string(),
+            minimum: "5.5".to_string(),
             found: format!("{}.{}", major, minor),
         });
     }
@@ -52,7 +52,7 @@ mod tests {
     #[test]
     fn parse_version_standard() {
         assert_eq!(
-            parse_version("Apple Swift version 5.9.2 (swiftlang-...)"),
+            parse_version("Apple Swift version 5.5.2 (swiftlang-...)"),
             Some((5, 9))
         );
     }
