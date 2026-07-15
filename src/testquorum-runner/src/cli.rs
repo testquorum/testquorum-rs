@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use clap::Parser;
 use clap::Subcommand;
@@ -293,10 +294,16 @@ async fn discover_only(registry: &ManagerRegistry) -> Result<RunResult, anyhow::
     let mut total = 0;
 
     for manager in registry.managers() {
+        let start = Instant::now();
         match manager.discover().await {
             Ok(mut tests) => {
                 tests.sort_by(|a, b| a.name.cmp(&b.name));
-                info!("{}: {} test(s)", manager.identity(), tests.len());
+                info!(
+                    "{}: {} test(s) discovered in {}ms",
+                    manager.identity(),
+                    tests.len(),
+                    start.elapsed().as_millis()
+                );
                 for test in &tests {
                     info!("  - {}", test.name);
                 }
@@ -346,8 +353,17 @@ async fn discover_and_run(
     // Phase 1: discover all tests from all managers.
     let mut all_tests: Vec<Test> = Vec::new();
     for manager in registry.managers() {
+        let start = Instant::now();
         match manager.discover().await {
-            Ok(tests) => all_tests.extend(tests),
+            Ok(tests) => {
+                info!(
+                    "{}: {} test(s) discovered in {}ms",
+                    manager.identity(),
+                    tests.len(),
+                    start.elapsed().as_millis()
+                );
+                all_tests.extend(tests);
+            }
             Err(e) => {
                 error!("error discovering from {}: {}", manager.identity(), e);
                 discovery_errors.push((manager.identity(), e.to_string()));
