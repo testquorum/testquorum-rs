@@ -13,7 +13,13 @@ pub(crate) fn detect_ocaml(dune_project_path: Option<&str>) -> Result<String, Oc
 
     let (major, minor) = parse_version(&version_str).ok_or_else(|| OcamlError::TooOld {
         minimum: "2.0".to_string(),
-        found: version_str.trim().lines().next().unwrap_or("").trim().to_string(),
+        found: version_str
+            .trim()
+            .lines()
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string(),
     })?;
 
     if (major, minor) < (2, 0) {
