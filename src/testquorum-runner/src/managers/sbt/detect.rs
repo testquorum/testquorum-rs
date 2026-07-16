@@ -13,7 +13,13 @@ pub(crate) fn detect_sbt(build_sbt_path: Option<&str>) -> Result<String, SbtErro
 
     let (major, minor) = parse_version(&version_str).ok_or_else(|| SbtError::TooOld {
         minimum: "1.0".to_string(),
-        found: version_str.trim().lines().next().unwrap_or("").trim().to_string(),
+        found: version_str
+            .trim()
+            .lines()
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string(),
     })?;
 
     if (major, minor) < (1, 0) {
