@@ -51,7 +51,12 @@ mod tests {
 
     #[test]
     fn parse_version_modern() {
-        assert_eq!(parse_version("cmake version 3.20.0\n\nCMake suite maintained and supported by Kitware (kitware.com/cmake)."), Some((3, 20)));
+        assert_eq!(
+            parse_version(
+                "cmake version 3.20.0\n\nCMake suite maintained and supported by Kitware (kitware.com/cmake)."
+            ),
+            Some((3, 20))
+        );
     }
 
     #[test]
