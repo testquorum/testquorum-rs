@@ -12,7 +12,13 @@ pub(crate) fn detect_kotlin(build_file_path: Option<&str>) -> Result<String, Kot
     let version_str = String::from_utf8_lossy(&output.stderr);
     let version = parse_version(&version_str).ok_or_else(|| KotlinError::JavaTooOld {
         minimum: "11".to_string(),
-        found: version_str.trim().lines().next().unwrap_or("").trim().to_string(),
+        found: version_str
+            .trim()
+            .lines()
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string(),
     })?;
 
     if version < 11 {
