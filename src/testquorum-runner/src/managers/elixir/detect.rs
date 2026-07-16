@@ -13,7 +13,13 @@ pub(crate) fn detect_elixir(mix_exs_path: Option<&str>) -> Result<String, Elixir
 
     let (major, minor) = parse_version(&version_str).ok_or_else(|| ElixirError::TooOld {
         minimum: "1.14".to_string(),
-        found: version_str.trim().lines().last().unwrap_or("").trim().to_string(),
+        found: version_str
+            .trim()
+            .lines()
+            .last()
+            .unwrap_or("")
+            .trim()
+            .to_string(),
     })?;
 
     if (major, minor) < (1, 14) {
@@ -52,7 +58,9 @@ mod tests {
     #[test]
     fn parse_version_modern() {
         assert_eq!(
-            parse_version("Erlang/OTP 26 [erts-14.1.1]\n\nElixir 1.15.7 (compiled with Erlang/OTP 26)"),
+            parse_version(
+                "Erlang/OTP 26 [erts-14.1.1]\n\nElixir 1.15.7 (compiled with Erlang/OTP 26)"
+            ),
             Some((1, 15))
         );
     }
