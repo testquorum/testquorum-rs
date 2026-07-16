@@ -14,7 +14,13 @@ pub(crate) fn detect_r(description_path: Option<&str>) -> Result<String, RError>
 
     let (major, minor) = parse_version(&version_str).ok_or_else(|| RError::TooOld {
         minimum: "4.0".to_string(),
-        found: version_str.trim().lines().next().unwrap_or("").trim().to_string(),
+        found: version_str
+            .trim()
+            .lines()
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string(),
     })?;
 
     if (major, minor) < (4, 0) {
