@@ -13,7 +13,13 @@ pub(crate) fn detect_dart(pubspec_path: Option<&str>) -> Result<String, DartErro
 
     let (major, minor) = parse_version(&version_str).ok_or_else(|| DartError::TooOld {
         minimum: "3.0".to_string(),
-        found: version_str.trim().lines().next().unwrap_or("").trim().to_string(),
+        found: version_str
+            .trim()
+            .lines()
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string(),
     })?;
 
     if (major, minor) < (3, 0) {
@@ -52,7 +58,9 @@ mod tests {
     #[test]
     fn parse_version_modern() {
         assert_eq!(
-            parse_version("Dart SDK version: 3.1.0 (stable) (Tue Jul 25 21:39:02 2023 +0000) on \"macos_arm64\""),
+            parse_version(
+                "Dart SDK version: 3.1.0 (stable) (Tue Jul 25 21:39:02 2023 +0000) on \"macos_arm64\""
+            ),
             Some((3, 1))
         );
     }
