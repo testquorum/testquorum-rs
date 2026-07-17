@@ -6,11 +6,14 @@ use serde::Deserialize;
 use serde::Serialize;
 use testquorum_api::types as api;
 
+pub(crate) mod buck2;
 pub(crate) mod cargo;
 pub(crate) mod nix;
 pub(crate) mod npm;
 pub(crate) mod treefmt;
 
+pub(crate) use buck2::Buck2Manager;
+pub(crate) use buck2::detect_buck2;
 pub(crate) use cargo::CargoManager;
 pub(crate) use cargo::detect_cargo;
 pub(crate) use nix::NixManager;

@@ -12,6 +12,7 @@ pub struct Config {
 pub struct Managers {
     #[serde(default = "default_true")]
     pub autodetect: bool,
+    pub buck2: Option<Buck2Config>,
     pub nix: Option<NixConfig>,
     pub cargo: Option<CargoConfig>,
     pub npm: Option<NpmConfig>,
@@ -21,6 +22,7 @@ pub struct Managers {
 fn default_managers() -> Managers {
     Managers {
         autodetect: true,
+        buck2: None,
         nix: None,
         cargo: None,
         npm: None,
@@ -99,6 +101,17 @@ impl Default for Cloud {
 
 fn default_max_wait_seconds() -> u64 {
     10
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct Buck2Config {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub buckconfig_path: Option<String>,
+    /// Build target to test. Defaults to `//...` (all targets).
+    #[serde(default)]
+    pub target: Option<String>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -442,6 +455,7 @@ max_wait_seconds = 30
         let config1 = Config {
             managers: Managers {
                 autodetect: true,
+                buck2: None,
                 nix: Some(NixConfig {
                     enabled: true,
                     attrset: "checks".to_string(),

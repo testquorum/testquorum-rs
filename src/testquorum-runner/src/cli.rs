@@ -8,6 +8,7 @@ use rand::seq::SliceRandom;
 use testquorum_api::Client;
 use testquorum_api::types::TestManager;
 
+use crate::Buck2Manager;
 use crate::CargoManager;
 use crate::Environment;
 use crate::ManagerRegistry;
@@ -18,6 +19,7 @@ use crate::Test;
 use crate::TestEvent;
 use crate::TreefmtManager;
 use crate::config::find_config_file;
+use crate::detect_buck2;
 use crate::detect_cargo;
 use crate::detect_environment;
 use crate::detect_nix;
@@ -174,6 +176,7 @@ fn default_config() -> testquorum_config::Config {
     testquorum_config::Config {
         managers: testquorum_config::Managers {
             autodetect: true,
+            buck2: None,
             nix: None,
             cargo: None,
             npm: None,
@@ -201,6 +204,26 @@ fn build_registry(
     // The builder exists only when the nix manager is registered: that manager
     // is what reports a `nix://` build's pass/fail, so cargo may only depend on
     // one when it's active.
+    let buck2_config = config.managers.buck2.as_ref();
+    let buck2_enabled = buck2_config.map(|c| c.enabled).unwrap_or(true);
+    let buck2_buckconfig = buck2_config.and_then(|c| c.buckconfig_path.as_deref());
+    let buck2_target = buck2_config
+        .and_then(|c| c.target.as_deref())
+        .unwrap_or("//...")
+        .to_string();
+
+    if config.managers.autodetect
+        && buck2_enabled
+        && (buck2_buckconfig.is_some() || std::path::Path::new(".buckconfig").exists())
+    {
+        match detect_buck2(buck2_buckconfig) {
+            Ok(_) => {
+                registry.register(Box::new(Buck2Manager::new(buck2_target)));
+            }
+            Err(e) => eprintln!("warning: buck2 detection failed: {}", e),
+        }
+    }
+
     let mut nix_builder: Option<Arc<NixBuilder>> = None;
     if config.managers.autodetect && nix_enabled && std::path::Path::new("flake.nix").exists() {
         match detect_nix() {
