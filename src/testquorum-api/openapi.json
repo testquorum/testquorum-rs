@@ -6,7 +6,7 @@
     "license": {
       "name": ""
     },
-    "version": "0.1.362"
+    "version": "0.1.371"
   },
   "servers": [
     {
@@ -2477,52 +2477,60 @@
         "example": "cargo"
       },
       "TestResultDoc": {
-        "type": "object",
-        "description": "A single test instance within a CI run.\n\nSubmitting the same `id` again replaces the existing record, so\nclients model the test lifecycle by emitting state transitions\nagainst a UUID they mint once when the test is first observed.",
-        "required": [
-          "id",
-          "test_name",
-          "run",
-          "state"
-        ],
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid",
-            "description": "Stable identifier for this test instance. Must be a UUIDv7\n(RFC 9562 §5.7); other UUID versions are rejected."
-          },
-          "rank": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Server-stamped rank within the test group, written by\n`POST /test-groups/{id}/rank`. Drives the order in which the\nrunner consumes entries via the queue endpoint. Clients may not\nsupply this field on submission; entries with `rank` set on the\nwire are rejected.",
-            "nullable": true,
-            "minimum": 0
-          },
-          "run": {
-            "$ref": "#/components/schemas/Run"
-          },
-          "state": {
-            "$ref": "#/components/schemas/TestState"
-          },
-          "test_group": {
-            "type": "string",
-            "format": "uuid",
-            "description": "Optional reference to a test group this result is part of.\nWhen set, the caller's API key must have access to the group\nfor the write to be accepted. Immutable after first write — a\nresubmit cannot change which group an entry belongs to.",
-            "nullable": true
-          },
-          "test_manager": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/TestManager"
-              }
+        "allOf": [
+          {
+            "type": "object",
+            "description": "Identifies a test: its fully-qualified name together with the\nmanager that produced it. A name is unique only within a manager,\nso the two are always carried as a unit.",
+            "required": [
+              "test_name",
+              "test_manager"
             ],
-            "nullable": true
+            "properties": {
+              "test_manager": {
+                "$ref": "#/components/schemas/TestManager"
+              },
+              "test_name": {
+                "type": "string",
+                "description": "Fully-qualified test name as reported by the runner."
+              }
+            }
           },
-          "test_name": {
-            "type": "string",
-            "description": "Fully-qualified test name as reported by the runner."
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "run",
+              "state"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "description": "Stable identifier for this test instance. Must be a UUIDv7\n(RFC 9562 §5.7); other UUID versions are rejected."
+              },
+              "rank": {
+                "type": "integer",
+                "format": "int32",
+                "description": "Server-stamped rank within the test group, written by\n`POST /test-groups/{id}/rank`. Drives the order in which the\nrunner consumes entries via the queue endpoint. Clients may not\nsupply this field on submission; entries with `rank` set on the\nwire are rejected.",
+                "nullable": true,
+                "minimum": 0
+              },
+              "run": {
+                "$ref": "#/components/schemas/Run"
+              },
+              "state": {
+                "$ref": "#/components/schemas/TestState"
+              },
+              "test_group": {
+                "type": "string",
+                "format": "uuid",
+                "description": "Optional reference to a test group this result is part of.\nWhen set, the caller's API key must have access to the group\nfor the write to be accepted. Immutable after first write — a\nresubmit cannot change which group an entry belongs to.",
+                "nullable": true
+              }
+            }
           }
-        }
+        ],
+        "description": "A single test instance within a CI run.\n\nSubmitting the same `id` again replaces the existing record, so\nclients model the test lifecycle by emitting state transitions\nagainst a UUID they mint once when the test is first observed."
       },
       "TestState": {
         "oneOf": [
