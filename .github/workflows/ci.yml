@@ -27,7 +27,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install Nix
-        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
 
       - name: Setup Nix S3 cache
         uses: testquorum/nix-s3-generations@45aa2ff2b0df67b5f48a1b710c574c754f08a0c7 # v0.1.4
