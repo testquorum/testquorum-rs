@@ -1,6 +1,6 @@
 [package]
 name = "testquorum-api"
-version = "0.1.362"
+version = "0.1.371"
 edition.workspace = true
 license.workspace = true
 
